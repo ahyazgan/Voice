@@ -14,6 +14,12 @@ const EnvSchema = z.object({
   STT_PROVIDER: z.string().default('mock'),
   TTS_PROVIDER: z.string().default('mock'),
   LLM_PROVIDER: z.string().default('mock'),
+
+  // OpenAI (LLM_PROVIDER=openai ise OPENAI_API_KEY zorunlu).
+  // Hız öncelikli: gpt-4o-mini (telefon konuşması için sweet spot).
+  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  OPENAI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
+
   LOG_LEVEL: z.string().default('info'),
 
   // API base URL — finalize özetini buraya POST ederiz. Boşsa persist atlanır.

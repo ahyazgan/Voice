@@ -11,6 +11,7 @@ import { TelnyxTelephonyProvider } from './telephony/telnyx.js';
 import { MockSTT } from './stt/mock.js';
 import { MockTTS } from './tts/mock.js';
 import { MockLLM } from './llm/mock.js';
+import { OpenAILLM } from './llm/openai.js';
 import { MockOrchestrationPlatform } from './platform/mock.js';
 
 export interface ProviderBundle {
@@ -75,6 +76,8 @@ function pickLLM(name: string): ILLMProvider {
   switch (name) {
     case 'mock':
       return new MockLLM();
+    case 'openai':
+      return new OpenAILLM({ apiKey: requireEnv('OPENAI_API_KEY') });
     default:
       throw new Error(`Unknown LLM provider: ${name}`);
   }
