@@ -1,5 +1,5 @@
 import { Queue, Worker, type JobsOptions } from 'bullmq';
-import IORedis from 'ioredis';
+import { Redis } from 'ioredis';
 import { env } from '../config.js';
 
 export const CALL_QUEUE = 'calls';
@@ -11,7 +11,7 @@ export interface CallJobData {
   attempt: number;
 }
 
-const connection = new IORedis(env.REDIS_URL, {
+const connection = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
 });
 

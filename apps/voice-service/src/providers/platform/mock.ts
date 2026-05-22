@@ -45,7 +45,7 @@ export class MockOrchestrationPlatform implements IOrchestrationPlatform {
           opts.onEnd?.({
             reason: `state_terminal:${decision.outcome ?? 'unknown'}`,
             transcript: [],
-            outcome: decision.outcome,
+            ...(decision.outcome !== undefined && { outcome: decision.outcome }),
           });
           await session.end('state_terminal');
         }

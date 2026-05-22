@@ -51,7 +51,7 @@ export async function startPlatformCall(deps: {
         reply: decision.reply,
         state: decision.state,
         shouldHangup: decision.shouldHangup,
-        outcome: decision.outcome,
+        ...(decision.outcome !== undefined && { outcome: decision.outcome }),
       };
     },
     onEnd: ({ reason, outcome }) => {
