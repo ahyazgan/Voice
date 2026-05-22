@@ -113,6 +113,9 @@ export function createCollectionsMachine(debtor: Debtor) {
       },
 
       // --- 3. BORÇ HATIRLATMA -------------------------------------------------
+      // NOT: NO_RESPONSE handler YOK → state'te kalır. LLM intent uyduramadığında
+      // NO_RESPONSE seçer; kapatmak yerine bir tur daha sorma şansı veririz.
+      // Gerçek müşteri sessizliği VAD timeout ile (orchestrator) ele alınır.
       remind: {
         on: {
           WILL_PAY: { target: 'confirm', actions: ['recordPromise', 'setOutcome'] },
@@ -121,7 +124,6 @@ export function createCollectionsMachine(debtor: Debtor) {
           REFUSES: { target: 'negotiate', actions: 'bumpAttempt' },
           ASKS_CALLBACK: { target: 'closing', actions: 'setOutcome' },
           GETS_ANGRY: 'escalate',
-          NO_RESPONSE: 'closing',
         },
       },
 
@@ -144,7 +146,7 @@ export function createCollectionsMachine(debtor: Debtor) {
           REFUSES: { actions: 'bumpAttempt' },
           GETS_ANGRY: 'escalate',
           ASKS_CALLBACK: { target: 'closing', actions: 'setOutcome' },
-          NO_RESPONSE: 'closing',
+          // NO_RESPONSE: stay — bkz. remind state notu.
         },
       },
 
@@ -154,7 +156,7 @@ export function createCollectionsMachine(debtor: Debtor) {
           CONFIRMED: { target: 'closing' },
           PARTIAL_OR_PLAN: { actions: 'recordPromise' },
           GETS_ANGRY: 'escalate',
-          NO_RESPONSE: 'closing',
+          // NO_RESPONSE: stay — teyit isteği tekrar sorulabilir.
         },
       },
 

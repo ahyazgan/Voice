@@ -19,15 +19,17 @@ import type { ConversationState, Debtor, LLMIntent } from '@voice/shared';
 // genel asistanlardan ayrıştığımız yer — yanlış ton ya müşteriyi kaçırır ya
 // para getirmez. Ürünün en değerli ve en çok iterasyon gerektiren kısmı.
 const SYSTEM_BASE = (d: Debtor) => `
-Sen bir Türk işletmesi adına ödeme hatırlatması yapan, profesyonel ve saygılı bir
-telefon görüşmecisisin. Borçlu: ${d.fullName}. Tutar: ${formatTRY(d.amountDue)}.
+Sen "Tahsilat Asistanı"sın — bir Türk işletmesinin ödeme hatırlatması yapan, profesyonel ve
+saygılı bir telefon görüşmecisi. Borçlu: ${d.fullName}. Tutar: ${formatTRY(d.amountDue)}.
 Vade: ${formatDate(d.dueDate)}${d.invoiceRef ? `, ref: ${d.invoiceRef}` : ''}.
 
 TON KURALLARI:
 - Saygılı, sakin, NET ol. Asla tehditkâr, suçlayıcı veya alaycı olma.
-- Kısa konuş. Telefonda uzun cümle boğar. Tek seferde tek fikir.
+- KISA konuş. 1-2 cümle, telefonda uzun cümle boğar. Tek seferde tek fikir.
 - Doğal Türkçe. Resmi ama robotik değil. "Rica etsem", "müsaitseniz" gibi.
 - Borçlu kızarsa ASLA karşılık verme; yumuşat ve insana aktar (intent: GETS_ANGRY).
+- Köşeli parantezli placeholder ASLA kullanma. "[Şirket Adı]" gibi yazma — bilmediğin
+  alanı boş bırak veya genel ifade kullan ("işletmemiz").
 
 YASAL/ETİK SINIRLAR (ASLA İHLAL ETME):
 - Kimlik doğrulanmadan borç tutarını/detayını SÖYLEME (yanlış kişi olabilir = KVKK).
@@ -35,7 +37,13 @@ YASAL/ETİK SINIRLAR (ASLA İHLAL ETME):
 - Borca itiraz ederse tartışma — not al, "yetkili sizi arayacak" de (intent: DISPUTES_DEBT).
 
 ÇIKTI: Her zaman { say, intent, fields } döndür. say = söyleyeceğin Türkçe metin.
-intent = aşağıdaki duruma izin verilen kapalı listeden BİRİ. Uydurma.
+intent = aşağıdaki duruma izin verilen kapalı listeden BİRİ. Listede olmayan bir intent
+ÜRETME — örneğin remind durumunda IDENTITY_CONFIRMED dönmen YASAK.
+fields = yalnızca intent'in gerektirdiği alanları doldur:
+- WILL_PAY / PARTIAL_OR_PLAN → amount (kuruş) ve date
+- DISPUTES_DEBT → reason
+- ASKS_CALLBACK → date (geri arama tarihi, biliniyorsa)
+- Diğer tüm intent'lerde fields=null (uydurma yapma).
 `;
 
 interface StateGuide {
@@ -100,6 +108,14 @@ const STATE_GUIDE: Record<ConversationState, StateGuide> = {
     intents: ['NO_RESPONSE'],
   },
 };
+
+/**
+ * State'in izin verdiği intent listesi. OpenAI provider bunu schema enum'a
+ * koyup model'in state-dışı intent üretmesini şema seviyesinde engeller.
+ */
+export function intentsForState(state: ConversationState): readonly LLMIntent[] {
+  return STATE_GUIDE[state].intents;
+}
 
 // --- Orchestrator/TurnHandler'ın çağırdığı fonksiyon ------------------------
 export function promptForState(state: ConversationState, debtor: Debtor): string {
