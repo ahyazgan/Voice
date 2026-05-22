@@ -20,6 +20,14 @@ const EnvSchema = z.object({
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   OPENAI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
 
+  // ElevenLabs (TTS_PROVIDER=elevenlabs ise ELEVENLABS_API_KEY zorunlu).
+  // eleven_turbo_v2_5 = en hızlı (~300ms), Türkçe destekli.
+  // Voice ID kütüphaneden seç: https://elevenlabs.io/app/voice-library
+  ELEVENLABS_VOICE_ID: z.string().default('21m00Tcm4TlvDq8ikWAM'),
+  ELEVENLABS_MODEL: z.string().default('eleven_turbo_v2_5'),
+  ELEVENLABS_STABILITY: z.coerce.number().min(0).max(1).default(0.5),
+  ELEVENLABS_SIMILARITY: z.coerce.number().min(0).max(1).default(0.75),
+
   LOG_LEVEL: z.string().default('info'),
 
   // API base URL — finalize özetini buraya POST ederiz. Boşsa persist atlanır.

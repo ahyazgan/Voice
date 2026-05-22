@@ -10,6 +10,7 @@ import { MockTelephony } from './telephony/mock.js';
 import { TelnyxTelephonyProvider } from './telephony/telnyx.js';
 import { MockSTT } from './stt/mock.js';
 import { MockTTS } from './tts/mock.js';
+import { ElevenLabsTTS } from './tts/elevenlabs.js';
 import { MockLLM } from './llm/mock.js';
 import { OpenAILLM } from './llm/openai.js';
 import { MockOrchestrationPlatform } from './platform/mock.js';
@@ -67,6 +68,14 @@ function pickTTS(name: string): ITTSProvider {
   switch (name) {
     case 'mock':
       return new MockTTS();
+    case 'elevenlabs':
+      return new ElevenLabsTTS({
+        apiKey: requireEnv('ELEVENLABS_API_KEY'),
+        voiceId: env.ELEVENLABS_VOICE_ID,
+        model: env.ELEVENLABS_MODEL,
+        stability: env.ELEVENLABS_STABILITY,
+        similarityBoost: env.ELEVENLABS_SIMILARITY,
+      });
     default:
       throw new Error(`Unknown TTS provider: ${name}`);
   }

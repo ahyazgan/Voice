@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "openai:test": "node --env-file=../../.env --import tsx scripts/test-openai-turn.ts"
+    "openai:test": "node --env-file=../../.env --import tsx scripts/test-openai-turn.ts",
+    "tts:test": "node --env-file=../../.env --import tsx scripts/test-tts.ts"
   },
   "dependencies": {
     "@voice/shared": "workspace:*",

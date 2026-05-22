@@ -19,3 +19,8 @@ pnpm-debug.log*
 .idea
 
 prisma/migrations/dev.db*
+
+# TTS test çıktıları (binary, lokal)
+*.wav
+*.mp3
+*.ulaw
