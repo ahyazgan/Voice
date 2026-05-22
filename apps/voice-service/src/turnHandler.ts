@@ -1,0 +1,104 @@
+import type {
+  CallContext,
+  CallOutcome,
+  ConversationState,
+  ILLMProvider,
+  TranscriptTurn,
+} from '@voice/shared';
+import { LLMStructuredOutputSchema } from '@voice/shared';
+import {
+  currentState,
+  eventFromIntent,
+  startConversation,
+  type ConversationActor,
+} from './stateMachine.js';
+import { systemPromptFor } from './prompts/index.js';
+import { logger } from './telemetry.js';
+
+export interface TurnDecision {
+  reply: string;
+  shouldHangup: boolean;
+  outcome?: CallOutcome;
+  state: ConversationState;
+}
+
+/**
+ * Audio transport'tan bağımsız, tek "tur" iş mantığı.
+ * - Faz 1: orkestrasyon platformu her müşteri turunda çağırır.
+ * - Faz 2: kendi `Orchestrator` sınıfımız STT final eventinde çağırır.
+ *
+ * Geri dönüş hep yapılandırılmış: serbest LLM cevabı YASAK.
+ */
+export class TurnHandler {
+  private actor: ConversationActor;
+  private history: TranscriptTurn[] = [];
+
+  constructor(
+    private readonly callContext: CallContext,
+    private readonly llm: ILLMProvider,
+  ) {
+    this.actor = startConversation(callContext.debtor);
+  }
+
+  get transcript(): readonly TranscriptTurn[] {
+    return this.history;
+  }
+
+  get outcome(): CallOutcome | undefined {
+    return this.actor.getSnapshot().context.outcome ?? undefined;
+  }
+
+  get state(): ConversationState {
+    return currentState(this.actor);
+  }
+
+  recordAgentUtterance(text: string): void {
+    this.history.push({ speaker: 'agent', text, at: new Date().toISOString() });
+  }
+
+  async handleUserText(userText: string): Promise<TurnDecision> {
+    const startedAt = performance.now();
+    this.history.push({ speaker: 'customer', text: userText, at: new Date().toISOString() });
+
+    const state = currentState(this.actor);
+    const raw = await this.llm.respond({
+      systemPrompt: systemPromptFor(state, this.callContext),
+      context: { callContext: this.callContext, state, history: this.history },
+      userText,
+    });
+
+    const parsed = LLMStructuredOutputSchema.safeParse(raw);
+    if (!parsed.success) {
+      logger.warn(
+        { issues: parsed.error.issues, callId: this.callContext.callId },
+        'llm output invalid',
+      );
+      const reply = 'Sizi tam anlayamadım, kısaca tekrar eder misiniz?';
+      this.recordAgentUtterance(reply);
+      return { reply, shouldHangup: false, state };
+    }
+
+    const { say, intent, fields } = parsed.data;
+    const event = eventFromIntent(intent, fields);
+    if (event) this.actor.send(event);
+
+    const snap = this.actor.getSnapshot();
+    const nextState = snap.value as ConversationState;
+    const shouldHangup = snap.status === 'done';
+
+    this.history.push({
+      speaker: 'agent',
+      text: say,
+      at: new Date().toISOString(),
+      latencyMs: Math.round(performance.now() - startedAt),
+    });
+
+    const outcome = snap.context.outcome ?? undefined;
+    return {
+      reply: say,
+      shouldHangup,
+      state: nextState,
+      ...(outcome !== undefined && { outcome }),
+    };
+  }
+}

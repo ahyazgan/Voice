@@ -1,0 +1,6 @@
+{
+  "name": "@voice/config",
+  "version": "0.0.0",
+  "private": true,
+  "files": ["tsconfig.app.json", "tsconfig.lib.json", "eslint.config.mjs"]
+}

@@ -1,0 +1,24 @@
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { prisma } from '../db/index.js';
+
+const CreateDebtorSchema = z.object({
+  fullName: z.string().min(1),
+  phoneE164: z.string().regex(/^\+\d{8,15}$/),
+  amountDue: z.number().int().nonnegative(),
+  dueDate: z.string().datetime(),
+  invoiceRef: z.string().optional(),
+});
+
+export async function debtorsRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/debtors', async () => {
+    return prisma.debtor.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+  });
+
+  app.post('/debtors', async (req, reply) => {
+    const body = CreateDebtorSchema.parse(req.body);
+    const debtor = await prisma.debtor.create({ data: { ...body, currency: 'TRY' } });
+    reply.code(201);
+    return debtor;
+  });
+}

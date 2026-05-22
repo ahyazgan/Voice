@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Debtor {
+  id         String   @id @default(cuid())
+  fullName   String
+  phoneE164  String
+  amountDue  Int
+  currency   String   @default("TRY")
+  dueDate    DateTime
+  invoiceRef String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  calls Call[]
+}
+
+model Campaign {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  calls Call[]
+}
+
+enum CallStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum CallOutcome {
+  PROMISE_TO_PAY
+  DISPUTE
+  WRONG_NUMBER
+  NO_ANSWER
+  CALLBACK_REQUESTED
+  ESCALATED_TO_HUMAN
+  REFUSED
+}
+
+model Call {
+  id          String     @id @default(cuid())
+  campaignId  String
+  debtorId    String
+  status      CallStatus @default(QUEUED)
+  attempt     Int        @default(1)
+  startedAt   DateTime?
+  endedAt     DateTime?
+  durationSec Int?
+  createdAt   DateTime   @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  debtor   Debtor   @relation(fields: [debtorId], references: [id], onDelete: Restrict)
+
+  result     CallResult?
+  transcript TranscriptTurn[]
+}
+
+model CallResult {
+  callId          String      @id
+  outcome         CallOutcome
+  promisedAmount  Int?
+  promisedDate    DateTime?
+  disputeReason   String?
+  recordingUrl    String?
+
+  // Maliyet
+  costTRY         Int         @default(0)
+  llmTokensIn     Int         @default(0)
+  llmTokensOut   Int         @default(0)
+  ttsChars        Int         @default(0)
+  sttSec          Int         @default(0)
+  telephonySec    Int         @default(0)
+
+  // Kalite metrikleri (telemetry.finalize'dan)
+  avgResponseMs   Int?
+  p95ResponseMs   Int?
+  bargeIns        Int         @default(0)
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+}
+
+model TranscriptTurn {
+  id        String   @id @default(cuid())
+  callId    String
+  speaker   String
+  text      String
+  at        DateTime
+  latencyMs Int?
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([callId, at])
+}
