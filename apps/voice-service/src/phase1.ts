@@ -4,6 +4,7 @@ import type {
   IOrchestrationPlatform,
   PlatformCallSession,
 } from '@voice/shared';
+import { normalizeForTTS } from '@voice/shared';
 import { TurnHandler } from './turnHandler.js';
 import { CONSENT_ANNOUNCEMENT } from './prompts/index.js';
 import { CallTelemetry, logger } from './telemetry.js';
@@ -36,6 +37,9 @@ export async function startPlatformCall(deps: {
       telemetry.mark('stt_final');
       const decision = await turn.handleUserText(userText);
       telemetry.markOnce('llm_first_token');
+      if (decision.usage) {
+        telemetry.addLlmTokens(decision.usage.tokensIn, decision.usage.tokensOut);
+      }
       telemetry.endTurn();
 
       logger.info(
@@ -48,7 +52,9 @@ export async function startPlatformCall(deps: {
         'phase1 turn',
       );
       return {
-        reply: decision.reply,
+        // Faz 1'de TTS platformda; platforma giden metni de normalize et
+        // (sayı/tarih insan okunuşu) — transcript ham decision.reply'ı korur.
+        reply: normalizeForTTS(decision.reply),
         state: decision.state,
         shouldHangup: decision.shouldHangup,
         ...(decision.outcome !== undefined && { outcome: decision.outcome }),
@@ -70,6 +76,10 @@ export async function startPlatformCall(deps: {
       void postFinalize({
         callId: deps.callContext.callId,
         outcome: finalOutcome,
+        consentToRecord: deps.callContext.consentToRecord,
+        ...(turn.promisedAmount !== undefined && { promisedAmount: turn.promisedAmount }),
+        ...(turn.promisedDate !== undefined && { promisedDate: turn.promisedDate }),
+        ...(turn.disputeReason !== undefined && { disputeReason: turn.disputeReason }),
         summary,
         transcript: turn.transcript,
       });

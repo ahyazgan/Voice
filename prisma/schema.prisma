@@ -15,16 +15,28 @@ model Debtor {
   currency   String   @default("TRY")
   dueDate    DateTime
   invoiceRef String?
+  // Arama saati penceresi borçlunun yerel saatine göre hesaplanır.
+  timezone   String   @default("Europe/Istanbul")
+  // Kalıcı opt-out: WRONG_NUMBER sonrası veya manuel "beni arama" → asla aranmaz.
+  doNotCall  Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   calls Call[]
 }
 
+enum CampaignStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  COMPLETED
+}
+
 model Campaign {
-  id        String   @id @default(cuid())
+  id        String         @id @default(cuid())
   name      String
-  createdAt DateTime @default(now())
+  status    CampaignStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
 
   calls Call[]
 }
@@ -34,6 +46,9 @@ enum CallStatus {
   RUNNING
   COMPLETED
   FAILED
+  SCHEDULED // pencere dışı/retry: delayed job olarak beklemede
+  CANCELLED // kampanya iptali ile düşürüldü
+  SKIPPED   // KVKK/doNotCall nedeniyle hiç aranmadı
 }
 
 enum CallOutcome {
@@ -47,21 +62,35 @@ enum CallOutcome {
 }
 
 model Call {
-  id          String     @id @default(cuid())
+  id          String       @id @default(cuid())
   campaignId  String
   debtorId    String
-  status      CallStatus @default(QUEUED)
-  attempt     Int        @default(1)
+  status      CallStatus   @default(QUEUED)
+  attempt     Int          @default(1)
+  // Pencere/retry için planlanan zaman (gözlemlenebilirlik; delayed job ile eşlenir).
+  scheduledFor DateTime?
+  // Outcome denormu: retry kararını CallResult join'i olmadan sorgulamak için.
+  // Kaynağı CallResult.outcome; finalize anında yazılır.
+  outcome     CallOutcome?
+  // Outcome-bazlı takip/tekrar aramaları bu zincirle izlenir (idempotency + raporlama).
+  parentCallId String?
   startedAt   DateTime?
   endedAt     DateTime?
   durationSec Int?
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime     @default(now())
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   debtor   Debtor   @relation(fields: [debtorId], references: [id], onDelete: Restrict)
 
+  parent   Call?  @relation("CallFollowup", fields: [parentCallId], references: [id], onDelete: SetNull)
+  children Call[] @relation("CallFollowup")
+
   result     CallResult?
   transcript TranscriptTurn[]
+
+  // KVKK taciz sayımı + retry sorguları bu indeksten yararlanır.
+  @@index([debtorId, createdAt])
+  @@index([campaignId, status])
 }
 
 model CallResult {

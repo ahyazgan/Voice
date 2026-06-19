@@ -30,6 +30,30 @@ export async function enqueueCall(
   });
 }
 
+/**
+ * Bir kampanyaya ait HENÜZ ÇALIŞMAMIŞ job'ları (waiting/delayed/paused) kuyruktan
+ * kaldırır. RUNNING (active) job'lara dokunmaz — onlar doğal biter. Duraklat/iptal
+ * akışında kullanılır. Döndürdüğü sayı = kaldırılan job adedi.
+ *
+ * Not: BullMQ'da data alanına göre doğrudan sorgu yok; getJobs + filtre. Kampanya
+ * ölçeği büyürse jobId konvansiyonu (`${campaignId}:${callId}`) ile optimize edilebilir.
+ */
+export async function removeCampaignJobs(campaignId: string): Promise<number> {
+  const jobs = await callQueue.getJobs(['waiting', 'delayed', 'paused', 'wait']);
+  let removed = 0;
+  for (const job of jobs) {
+    if (job?.data?.campaignId === campaignId) {
+      try {
+        await job.remove();
+        removed++;
+      } catch {
+        // Job araya çalışmaya başlamış olabilir (active'e geçti) — remove reddeder; atla.
+      }
+    }
+  }
+  return removed;
+}
+
 export function createCallWorker(
   processor: (data: CallJobData) => Promise<void>,
   concurrency = 4,
@@ -39,6 +63,12 @@ export function createCallWorker(
     async (job) => {
       await processor(job.data);
     },
-    { connection, concurrency },
+    {
+      connection,
+      concurrency,
+      // Hız limiti: pencere içinde en çok N arama işlenir. Concurrency eşzamanlı
+      // hat sayısını, limiter ise zaman-bazlı debiyi sınırlar (operatör/maliyet).
+      limiter: { max: env.CALL_RATE_MAX, duration: env.CALL_RATE_DURATION_MS },
+    },
   );
 }

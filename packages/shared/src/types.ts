@@ -96,6 +96,14 @@ export interface LLMStructuredOutput {
     date?: string;     // YYYY-MM-DD veya tam ISO
     reason?: string;
   };
+  /**
+   * Token kullanımı (maliyet telemetrisi için). Şemanın parçası DEĞİL — provider
+   * ekler, TurnHandler telemetriye taşır. Sağlayıcı vermezse undefined.
+   */
+  usage?: {
+    tokensIn: number;
+    tokensOut: number;
+  };
 }
 
 export interface AudioChunk {

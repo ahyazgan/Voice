@@ -80,6 +80,33 @@ pnpm --filter @voice/web dev             # http://localhost:5173
 
 Orkestratör veya state machine'e dokunma — provider eklemek tek dosya değişimi olmalı.
 
+## Faz 1: Retell ile gerçek arama (mock'tan çıkış)
+
+Mock yerine gerçek arama için `ORCHESTRATION_PROVIDER=retell`. Retell aramayı +
+sesi yürütür; her müşteri turunda bizim `/llm-websocket/{call_id}` adresimize
+bağlanır ve state machine + LLM kararımızı seslendirir.
+
+1. **Retell agent'ı** oluştur (panel), tipini **Custom LLM** seç.
+   - `llm_websocket_url` = `wss://<voice-service-host>/llm-websocket/{call_id}`
+     (yerel test: `cloudflared tunnel --url http://localhost:8787` veya ngrok ile 8787'yi aç).
+   - `begin_message` **boş** bırak — rıza anonsu dinamik değişkenle gelir.
+2. **`.env`** doldur:
+   ```bash
+   VOICE_MODE=platform
+   ORCHESTRATION_PROVIDER=retell
+   LLM_PROVIDER=openai            # turları gerçek LLM üretsin
+   RETELL_API_KEY=...
+   RETELL_AGENT_ID=...
+   RETELL_FROM_NUMBER=+90...      # TR yerel giden numara (açılma oranı kritik)
+   OPENAI_API_KEY=...
+   ```
+3. **Çalıştır:** `pnpm --filter @voice/voice-service dev`, tünelin 8787'ye işaret ettiğini doğrula.
+4. **Tetikle:** API/worker üzerinden ya da control WS'e (`/control`) `{type:'start',debtor:{…}}` frame'i gönder.
+
+> Mimari köprü: `startCall()` giden REST (aramayı başlat), turlar gelen WS'ten
+> gelir; ikisi `callId` ile [retell.ts](apps/voice-service/src/providers/platform/retell.ts) içindeki
+> registry üzerinden eşlenir. Protokol testleri: [retell.platform.test.ts](apps/voice-service/src/__tests__/retell.platform.test.ts).
+
 ## Geliştirme Sırası
 
 Bkz. [ARCHITECTURE.md § 11](ARCHITECTURE.md#11-geli%C5%9Ftirme-s%C4%B1ras%C4%B1).

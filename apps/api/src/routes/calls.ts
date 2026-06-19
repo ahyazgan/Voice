@@ -1,6 +1,27 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db/index.js';
+import { env } from '../config.js';
+import { runRetryForFinalizedCall } from '../scheduling/retryRunner.js';
+
+/**
+ * Servis-içi auth: finalize gibi yazma endpoint'lerini korur. voice-service
+ * `x-internal-secret` header'ı ile çağırır. Secret ayarlı değilse (yerel dev)
+ * geçişe izin verilir ama UYARI loglanır — production'da ayarlanmalı.
+ */
+function requireInternalSecret(req: FastifyRequest, reply: FastifyReply): boolean {
+  if (!env.INTERNAL_API_SECRET) {
+    req.log.warn('INTERNAL_API_SECRET ayarlı değil — korumalı endpoint açık (yalnızca dev)');
+    return true;
+  }
+  const provided = req.headers['x-internal-secret'];
+  if (provided !== env.INTERNAL_API_SECRET) {
+    reply.code(401);
+    void reply.send({ error: 'unauthorized' });
+    return false;
+  }
+  return true;
+}
 
 const TranscriptTurnInput = z.object({
   speaker: z.enum(['agent', 'customer', 'system']),
@@ -44,8 +65,27 @@ const FinalizeInput = z.object({
 });
 
 export async function callsRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/calls', async () => {
+  const ListQuery = z.object({
+    status: z
+      .enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'SCHEDULED', 'CANCELLED', 'SKIPPED'])
+      .optional(),
+    outcome: z
+      .enum([
+        'PROMISE_TO_PAY', 'DISPUTE', 'WRONG_NUMBER', 'NO_ANSWER',
+        'CALLBACK_REQUESTED', 'ESCALATED_TO_HUMAN', 'REFUSED',
+      ])
+      .optional(),
+    campaignId: z.string().optional(),
+  });
+
+  app.get('/calls', async (req) => {
+    const q = ListQuery.parse(req.query);
     return prisma.call.findMany({
+      where: {
+        ...(q.status && { status: q.status }),
+        ...(q.outcome && { outcome: q.outcome }),
+        ...(q.campaignId && { campaignId: q.campaignId }),
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
       include: { debtor: true, result: true },
@@ -56,7 +96,11 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     const call = await prisma.call.findUnique({
       where: { id },
-      include: { debtor: true, result: true, transcript: true },
+      include: {
+        debtor: true,
+        result: true,
+        transcript: { orderBy: { at: 'asc' } },
+      },
     });
     if (!call) {
       reply.code(404);
@@ -73,6 +117,8 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
    * Tek transaction; orta yerde patlarsa hiçbiri yazılmaz.
    */
   app.post('/calls/:id/finalize', async (req, reply) => {
+    if (!requireInternalSecret(req, reply)) return reply;
+
     const { id } = req.params as { id: string };
     const body = FinalizeInput.parse(req.body);
 
@@ -81,9 +127,15 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
       reply.code(404);
       return { error: 'not_found' };
     }
+    if (call.status === 'COMPLETED') {
+      // Idempotent: voice-service retry'ı / çift finalize zararsız.
+      reply.code(200);
+      return { ok: true, alreadyFinalized: true };
+    }
 
     const totalCostTRY = Math.round(body.cost.totalTRY * 100); // TRY → kuruş (DB int)
 
+    try {
     await prisma.$transaction([
       prisma.call.update({
         where: { id },
@@ -91,6 +143,8 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           status: 'COMPLETED',
           endedAt: new Date(),
           durationSec: Math.round(body.durationSec),
+          // Outcome denormu: retry/raporlama sorgularında CallResult join'i gerekmesin.
+          outcome: body.outcome,
         },
       }),
       prisma.callResult.upsert({
@@ -141,6 +195,29 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
         })),
       }),
     ]);
+    } catch (err) {
+      // Transaction rollback → Call.status RUNNING'de kaldı. 500 dön ki
+      // voice-service finalize'ı başarısız sayıp tekrar denesin (idempotent).
+      req.log.error({ id, err }, 'finalize transaction failed');
+      reply.code(500);
+      return { error: 'finalize_failed', callId: id };
+    }
+
+    // Outcome-bazlı takip/tekrar: yalnızca İLK finalize'da (yukarıda COMPLETED
+    // dalı erken döndü → buraya tek kez gelinir). Best-effort: finalize yanıtını
+    // bloklamaz, hata yalnızca loglanır.
+    try {
+      const result = await runRetryForFinalizedCall(
+        id,
+        body.outcome,
+        body.promisedDate ? new Date(body.promisedDate) : null,
+      );
+      if (result?.scheduled) {
+        req.log.info({ callId: id, reason: result.reason }, 'followup call scheduled');
+      }
+    } catch (err) {
+      req.log.warn({ callId: id, err }, 'retry scheduling failed (ignored)');
+    }
 
     reply.code(200);
     return { ok: true };

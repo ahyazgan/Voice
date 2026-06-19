@@ -49,6 +49,13 @@ export const LLMStructuredOutputSchema = z.object({
       reason: z.string().optional(),
     })
     .optional(),
+  // Maliyet telemetrisi taşıma alanı (LLM şemasının parçası değil; provider ekler).
+  usage: z
+    .object({
+      tokensIn: z.number().int().nonnegative(),
+      tokensOut: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 
 export const TranscriptTurnSchema = z.object({

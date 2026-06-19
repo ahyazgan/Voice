@@ -14,6 +14,10 @@ class MockSTTSession implements STTSession {
     this.emitter.on('event', handler);
   }
 
+  emitPartial(text: string): void {
+    this.emitter.emit('event', { type: 'partial', text } satisfies STTEvent);
+  }
+
   emitFinal(text: string, durationMs: number): void {
     this.emitter.emit('event', { type: 'final', text, durationMs } satisfies STTEvent);
   }

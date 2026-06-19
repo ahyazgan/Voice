@@ -66,15 +66,25 @@ export class ElevenLabsTTS implements ITTSProvider {
       },
     };
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': this.cfg.apiKey,
-        accept: 'audio/*',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+    // Gerçek-zamanlı tur: TTS yanıtı gelmezse müşteri sessizlik duyar. İlk byte
+    // için sıkı timeout — askıda kalıp KPI tavanını (800ms) patlatmasın.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 8_000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': this.cfg.apiKey,
+          accept: 'audio/*',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!res.ok) {
       const errText = await res.text();

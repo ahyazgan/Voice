@@ -136,7 +136,14 @@ export function createCollectionsMachine(debtor: Debtor) {
           {
             guard: 'negotiationExhausted',
             target: 'closing',
-            actions: assign({ outcome: 'REFUSED' as CallOutcome }),
+            // REFUSED: pazarlık tükendi. Daha önce PARTIAL_OR_PLAN ile kaydedilmiş
+            // taksit teklifi varsa TEMİZLE — aksi halde outcome=REFUSED iken
+            // promisedAmount dolu kalır, panel/muhasebe tutarsız olur.
+            actions: assign({
+              outcome: 'REFUSED' as CallOutcome,
+              promisedAmount: null,
+              promisedDate: null,
+            }),
           },
         ],
         on: {
