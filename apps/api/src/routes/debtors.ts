@@ -21,4 +21,16 @@ export async function debtorsRoutes(app: FastifyInstance): Promise<void> {
     reply.code(201);
     return debtor;
   });
+
+  // Toplu yükleme: panel CSV'yi client'ta parse/valide edip dizi gönderir,
+  // burada tek transaction'da yazılır (tek-tek POST'tan atomik ve hızlı).
+  const BulkSchema = z.object({ rows: z.array(CreateDebtorSchema).min(1).max(2000) });
+  app.post('/debtors/bulk', async (req, reply) => {
+    const { rows } = BulkSchema.parse(req.body);
+    const result = await prisma.debtor.createMany({
+      data: rows.map((r) => ({ ...r, currency: 'TRY' })),
+    });
+    reply.code(201);
+    return { inserted: result.count };
+  });
 }

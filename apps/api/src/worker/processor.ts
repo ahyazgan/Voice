@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { prisma } from '../db/index.js';
 import { env } from '../config.js';
 import type { CallJobData } from '../queue/index.js';
+import { isCallableNow, scheduleCall } from '../scheduling/scheduler.js';
 
 /**
  * BullMQ job processor — kuyruktan bir aramayı alıp voice-service'i tetikler.
@@ -19,7 +20,7 @@ import type { CallJobData } from '../queue/index.js';
 export async function processCallJob(data: CallJobData): Promise<void> {
   const call = await prisma.call.findUnique({
     where: { id: data.callId },
-    include: { debtor: true },
+    include: { debtor: true, campaign: { select: { status: true } } },
   });
   if (!call) {
     // Call silinmiş veya hiç oluşmamış — sessizce başarılı.
@@ -27,6 +28,29 @@ export async function processCallJob(data: CallJobData): Promise<void> {
   }
   if (call.status === 'COMPLETED') {
     // Idempotent: zaten bitmiş aramayı tekrar arama.
+    return;
+  }
+  if (call.status === 'CANCELLED') {
+    // Duraklat/iptal ile düşürülmüş — kaldırılamamış yarış job'u. Arama YAPMA.
+    return;
+  }
+  if (call.campaign.status === 'PAUSED' || call.campaign.status === 'CANCELLED') {
+    // Kampanya durduruldu ama job kuyruktan çekilemeden çalışmaya başladı.
+    // Savunma kapısı: aramayı yapma, sessizce başarılı dön (retry tetikleme).
+    return;
+  }
+
+  // Pencere savunma kapısı: delayed job tetiklendiğinde saat ilerlemiş/DST kaymış
+  // olabilir. Pencere dışındaysak ARAMA YAPMA, bir sonraki açık pencereye yeniden
+  // zamanla. Bu, scheduler'ın enqueue-zamanı hesabının ikinci doğrulamasıdır.
+  if (!isCallableNow(call.debtor.timezone)) {
+    await scheduleCall({
+      campaignId: call.campaignId,
+      callId: call.id,
+      debtorId: call.debtorId,
+      timezone: call.debtor.timezone,
+      attempt: data.attempt,
+    });
     return;
   }
 
@@ -95,7 +119,10 @@ function runVoiceCall(args: RunArgs): Promise<void> {
           callId: args.callId,
           debtor: args.debtor,
           sampleRate: 16000,
-          consent: false,
+          // KVKK: rıza politikası env'den (varsayılan güvenli=false). Rıza
+          // anonsu her halükârda çalar; bu yalnızca kaydın saklanıp
+          // saklanmayacağını belirler. Hardcode 'false' yerine yapılandırılabilir.
+          consent: env.DEFAULT_RECORDING_CONSENT,
         }),
       );
     });
