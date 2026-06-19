@@ -18,6 +18,14 @@ const EnvSchema = z.object({
   // geliştirme için kabul edilebilir; production'da MUTLAKA ayarla).
   INTERNAL_API_SECRET: z.string().optional(),
 
+  // Panel girişi (insan operatör). Tek paylaşılan parola + HMAC bearer token.
+  // İkisi de boşsa panel auth KAPALI (yalnızca yerel geliştirme).
+  // PANEL_PASSWORD: operatörün gireceği parola. PANEL_AUTH_SECRET: token imza anahtarı.
+  PANEL_PASSWORD: z.string().optional(),
+  PANEL_AUTH_SECRET: z.string().optional(),
+  // Token geçerlilik süresi (saat).
+  PANEL_TOKEN_TTL_HOURS: z.coerce.number().int().positive().default(12),
+
   // KVKK: ses kaydı rızası politikası. Varsayılan GÜVENLİ (false = kayıt yok).
   // İşletme kayıt saklamak istiyorsa ve hukuki dayanağı varsa true yapar.
   // Anons her durumda çalınır; bu yalnızca kaydın SAKLANIP saklanmayacağını belirler.
