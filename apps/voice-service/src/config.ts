@@ -20,6 +20,23 @@ const EnvSchema = z.object({
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   OPENAI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
 
+  // Deepgram (STT_PROVIDER=deepgram ise DEEPGRAM_API_KEY zorunlu).
+  // Türkçe telefon STT: nova-2 modeli, μ-law/8000. interim_results→barge-in,
+  // utterance_end/speech_final→tur sonu.
+  DEEPGRAM_MODEL: z.string().default('nova-2'),
+  DEEPGRAM_LANGUAGE: z.string().default('tr'),
+  // Endpointing: kaç ms sessizlik konuşma sonu sayılır (TR ritmine göre ayarla).
+  DEEPGRAM_ENDPOINTING_MS: z.coerce.number().int().nonnegative().default(300),
+  DEEPGRAM_UTTERANCE_END_MS: z.coerce.number().int().nonnegative().default(1000),
+
+  // Retell (ORCHESTRATION_PROVIDER=retell ise RETELL_API_KEY + agent zorunlu).
+  // Retell aramayı yürütür; her müşteri turunda Custom-LLM WS üzerinden bize bağlanır.
+  // RETELL_AGENT_ID: Retell panelinde oluşturulmuş, llm_websocket_url'i bizim
+  //   /llm-websocket/{call_id} adresimize işaret eden agent.
+  // RETELL_FROM_NUMBER: Retell'e tanımlı giden arama numarası (TR yerel olmalı; bkz. telnyx notu).
+  RETELL_AGENT_ID: z.string().optional(),
+  RETELL_FROM_NUMBER: z.string().optional(),
+
   // ElevenLabs (TTS_PROVIDER=elevenlabs ise ELEVENLABS_API_KEY zorunlu).
   // eleven_turbo_v2_5 = en hızlı (~300ms), Türkçe destekli.
   // Voice ID kütüphaneden seç: https://elevenlabs.io/app/voice-library
@@ -32,6 +49,9 @@ const EnvSchema = z.object({
 
   // API base URL — finalize özetini buraya POST ederiz. Boşsa persist atlanır.
   API_BASE_URL: z.string().url().optional(),
+  // API'nin finalize endpoint'ini koruyan paylaşılan sır (x-internal-secret).
+  // API tarafındaki INTERNAL_API_SECRET ile AYNI olmalı.
+  INTERNAL_API_SECRET: z.string().optional(),
 
   // --- Maliyet fiyatları (TRY/birim) ---
   // Hepsi 0 ise telemetri totalTRY=0 döner. Gerçek değerleri sağlayıcı faturalarından doldur.

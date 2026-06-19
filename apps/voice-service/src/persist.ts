@@ -9,6 +9,8 @@ export interface FinalizePayload {
   promisedDate?: string;
   disputeReason?: string;
   recordingUrl?: string;
+  /** KVKK: rıza yoksa recordingUrl asla gönderilmez (default false = güvenli). */
+  consentToRecord?: boolean;
   summary: CallFinalSummary;
   transcript: readonly TranscriptTurn[];
 }
@@ -25,12 +27,20 @@ export async function postFinalize(p: FinalizePayload): Promise<void> {
   }
 
   const url = `${env.API_BASE_URL.replace(/\/$/, '')}/api/calls/${encodeURIComponent(p.callId)}/finalize`;
+
+  // KVKK veri minimizasyonu: açık rıza yoksa kayıt URL'sini ASLA gönderme.
+  // Rıza bilgisi gelmezse (undefined) güvenli tarafta kal → URL'yi düşür.
+  const recordingUrl = p.consentToRecord ? p.recordingUrl : undefined;
+  if (p.recordingUrl && !p.consentToRecord) {
+    logger.info({ callId: p.callId }, 'KVKK: rıza yok, recordingUrl finalize\'dan çıkarıldı');
+  }
+
   const body = {
     outcome: p.outcome,
     promisedAmount: p.promisedAmount,
     promisedDate: p.promisedDate,
     disputeReason: p.disputeReason,
-    recordingUrl: p.recordingUrl,
+    recordingUrl,
     durationSec: p.summary.durationSec,
     avgResponseMs: p.summary.avgResponseMs ?? undefined,
     p95ResponseMs: p.summary.p95ResponseMs ?? undefined,
@@ -39,20 +49,25 @@ export async function postFinalize(p: FinalizePayload): Promise<void> {
     transcript: p.transcript,
   };
 
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 5_000);
   try {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 5_000);
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(env.INTERNAL_API_SECRET && { 'x-internal-secret': env.INTERNAL_API_SECRET }),
+      },
       body: JSON.stringify(body),
       signal: ac.signal,
     });
-    clearTimeout(timer);
     if (!res.ok) {
       logger.warn({ callId: p.callId, status: res.status }, 'finalize POST başarısız');
     }
   } catch (err) {
+    // Hata yolunda da timer'ı temizle — aksi halde her başarısız POST bir timer sızdırır.
     logger.warn({ callId: p.callId, err }, 'finalize POST hatası');
+  } finally {
+    clearTimeout(timer);
   }
 }

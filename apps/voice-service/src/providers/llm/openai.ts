@@ -52,7 +52,10 @@ export class OpenAILLM implements ILLMProvider {
   private temperature: number;
 
   constructor(opts: { apiKey: string; model?: string; temperature?: number }) {
-    this.client = new OpenAI({ apiKey: opts.apiKey });
+    // Telefon turu gerçek-zamanlı: müşteri hatta bekler. SDK default timeout'u
+    // (~10dk) burada KABUL EDİLEMEZ. Tek tur için sıkı timeout + 1 retry —
+    // platform (Retell) tarafının ~30sn tur timeout'undan rahat içeride kalır.
+    this.client = new OpenAI({ apiKey: opts.apiKey, timeout: 8_000, maxRetries: 1 });
     this.model = opts.model ?? env.OPENAI_MODEL;
     this.temperature = opts.temperature ?? env.OPENAI_TEMPERATURE;
   }
@@ -102,6 +105,14 @@ export class OpenAILLM implements ILLMProvider {
       if (raw.fields.date !== null) fields.date = raw.fields.date;
       if (raw.fields.reason !== null) fields.reason = raw.fields.reason;
       if (Object.keys(fields).length > 0) out.fields = fields;
+    }
+    // Maliyet telemetrisi: token kullanımını taşı. Sonuç-bazlı fiyatlama bu
+    // sayıya dayanır; düşersek CostBreakdown.totalTRY eksik hesaplanır.
+    if (completion.usage) {
+      out.usage = {
+        tokensIn: completion.usage.prompt_tokens,
+        tokensOut: completion.usage.completion_tokens,
+      };
     }
     return out;
   }

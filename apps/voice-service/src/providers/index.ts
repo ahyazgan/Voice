@@ -9,11 +9,13 @@ import { env } from '../config.js';
 import { MockTelephony } from './telephony/mock.js';
 import { TelnyxTelephonyProvider } from './telephony/telnyx.js';
 import { MockSTT } from './stt/mock.js';
+import { DeepgramSTT, deepgramConfigFromEnv } from './stt/deepgram.js';
 import { MockTTS } from './tts/mock.js';
 import { ElevenLabsTTS } from './tts/elevenlabs.js';
 import { MockLLM } from './llm/mock.js';
 import { OpenAILLM } from './llm/openai.js';
 import { MockOrchestrationPlatform } from './platform/mock.js';
+import { RetellOrchestrationPlatform } from './platform/retell.js';
 
 export interface ProviderBundle {
   telephony: ITelephonyProvider;
@@ -42,7 +44,8 @@ function pickTelephony(name: string): ITelephonyProvider {
         apiKey: requireEnv('TELNYX_API_KEY'),
         connectionId: requireEnv('TELNYX_CONNECTION_ID'),
         fromNumberE164: requireEnv('TELNYX_FROM_NUMBER'),
-        mediaWsUrl: requireEnv('TELNYX_MEDIA_WS_URL'),
+        // Telnyx'in media stream için bağlanacağı BİZİM public WSS base'imiz.
+        publicWsBase: requireEnv('TELNYX_MEDIA_WS_URL'),
       });
     default:
       throw new Error(`Unknown telephony provider: ${name}`);
@@ -59,6 +62,8 @@ function pickSTT(name: string): ISTTProvider {
   switch (name) {
     case 'mock':
       return new MockSTT();
+    case 'deepgram':
+      return new DeepgramSTT(deepgramConfigFromEnv(requireEnv('DEEPGRAM_API_KEY')));
     default:
       throw new Error(`Unknown STT provider: ${name}`);
   }
@@ -96,7 +101,13 @@ function pickPlatform(name: string): IOrchestrationPlatform {
   switch (name) {
     case 'mock':
       return new MockOrchestrationPlatform();
-    // 'retell' | 'vapi' → eklenecek
+    case 'retell':
+      return new RetellOrchestrationPlatform({
+        apiKey: requireEnv('RETELL_API_KEY'),
+        agentId: requireEnv('RETELL_AGENT_ID'),
+        fromNumberE164: requireEnv('RETELL_FROM_NUMBER'),
+      });
+    // 'vapi' → eklenecek
     default:
       throw new Error(`Unknown orchestration platform: ${name}`);
   }

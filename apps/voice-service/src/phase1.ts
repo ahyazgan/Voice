@@ -36,6 +36,9 @@ export async function startPlatformCall(deps: {
       telemetry.mark('stt_final');
       const decision = await turn.handleUserText(userText);
       telemetry.markOnce('llm_first_token');
+      if (decision.usage) {
+        telemetry.addLlmTokens(decision.usage.tokensIn, decision.usage.tokensOut);
+      }
       telemetry.endTurn();
 
       logger.info(
@@ -70,6 +73,10 @@ export async function startPlatformCall(deps: {
       void postFinalize({
         callId: deps.callContext.callId,
         outcome: finalOutcome,
+        consentToRecord: deps.callContext.consentToRecord,
+        ...(turn.promisedAmount !== undefined && { promisedAmount: turn.promisedAmount }),
+        ...(turn.promisedDate !== undefined && { promisedDate: turn.promisedDate }),
+        ...(turn.disputeReason !== undefined && { disputeReason: turn.disputeReason }),
         summary,
         transcript: turn.transcript,
       });

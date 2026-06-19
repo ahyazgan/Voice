@@ -147,6 +147,67 @@ describe('TurnHandler — collections flow smoke', () => {
     expect(t2.outcome).toBe('ESCALATED_TO_HUMAN');
   });
 
+  it('ödeme sözü alanları (promisedAmount/Date) TurnHandler\'dan okunabilir — finalize veri kaybını önler', async () => {
+    const llm = new ScriptedLLM([
+      { say: 'Ayşe Hanım ile mi görüşüyorum?', intent: 'IDENTITY_CONFIRMED' },
+      {
+        say: 'Yarın öderim demiştiniz, teyit edelim.',
+        intent: 'WILL_PAY',
+        fields: { amount: 125000, date: '2026-04-15' },
+      },
+    ]);
+    const turn = new TurnHandler(makeContext(), llm);
+
+    await turn.handleUserText('Evet benim');
+    await turn.handleUserText('Yarın 1250 TL öderim');
+
+    // KRİTİK: bu alanlar postFinalize'a taşınır; getter yoksa DB'ye NULL gider.
+    expect(turn.promisedAmount).toBe(125000);
+    expect(turn.promisedDate).toBe('2026-04-15');
+    expect(turn.outcome).toBe('PROMISE_TO_PAY');
+  });
+
+  it('negotiate tükenip REFUSED olunca taksit teklifi TEMİZLENİR (tutarsız veri önlenir)', async () => {
+    // remind → PARTIAL_OR_PLAN (taksit kaydı) → negotiate, sonra 2x REFUSES → REFUSED.
+    const llm = new ScriptedLLM([
+      { say: 'Ayşe Hanım ile mi görüşüyorum?', intent: 'IDENTITY_CONFIRMED' },
+      {
+        say: 'Taksit ayarlayalım.',
+        intent: 'PARTIAL_OR_PLAN',
+        fields: { amount: 60000, date: '2026-05-01' },
+      },
+      { say: 'Bir tarih verebilir misiniz?', intent: 'REFUSES' },
+      { say: 'Anlıyorum.', intent: 'REFUSES' },
+    ]);
+    const turn = new TurnHandler(makeContext(), llm);
+
+    await turn.handleUserText('Evet benim');
+    await turn.handleUserText('Taksit olur mu?'); // → negotiate, promisedAmount=60000
+    await turn.handleUserText('Yok aslında ödeyemem'); // REFUSES (bumpAttempt=1)
+    const t = await turn.handleUserText('Hayır kesinlikle ödemem'); // REFUSES → tükenir
+
+    expect(t.outcome).toBe('REFUSED');
+    // Taksit teklifi REFUSED'da temizlenmeli — aksi halde panel "ödedi ama reddetti" gösterir.
+    expect(turn.promisedAmount).toBeUndefined();
+    expect(turn.promisedDate).toBeUndefined();
+  });
+
+  it('LLM usage TurnDecision\'a taşınır — maliyet telemetrisi için', async () => {
+    class UsageLLM implements ILLMProvider {
+      readonly name = 'usage';
+      async respond(_req: LLMRequest): Promise<LLMStructuredOutput> {
+        return {
+          say: 'Merhaba.',
+          intent: 'IDENTITY_CONFIRMED',
+          usage: { tokensIn: 320, tokensOut: 48 },
+        };
+      }
+    }
+    const turn = new TurnHandler(makeContext(), new UsageLLM());
+    const d = await turn.handleUserText('Evet benim');
+    expect(d.usage).toEqual({ tokensIn: 320, tokensOut: 48 });
+  });
+
   it('PARTIAL_OR_PLAN remind\'de → negotiate\'e geçer, ikinci turda WILL_PAY → confirm', async () => {
     const llm = new ScriptedLLM([
       { say: 'Ayşe Hanım ile mi görüşüyorum?', intent: 'IDENTITY_CONFIRMED' },

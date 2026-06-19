@@ -20,6 +20,8 @@ export interface TurnDecision {
   shouldHangup: boolean;
   outcome?: CallOutcome;
   state: ConversationState;
+  /** Bu turun LLM token kullanımı (maliyet telemetrisi için). Sağlayıcı vermezse yok. */
+  usage?: { tokensIn: number; tokensOut: number };
 }
 
 /**
@@ -46,6 +48,21 @@ export class TurnHandler {
 
   get outcome(): CallOutcome | undefined {
     return this.actor.getSnapshot().context.outcome ?? undefined;
+  }
+
+  /** Ödeme sözü tutarı (kuruş). Tahsilat ürününün ana çıktısı — finalize'a taşınmalı. */
+  get promisedAmount(): number | undefined {
+    return this.actor.getSnapshot().context.promisedAmount ?? undefined;
+  }
+
+  /** Ödeme sözü tarihi (ISO). */
+  get promisedDate(): string | undefined {
+    return this.actor.getSnapshot().context.promisedDate ?? undefined;
+  }
+
+  /** Borca itiraz gerekçesi (DISPUTE outcome'unda). */
+  get disputeReason(): string | undefined {
+    return this.actor.getSnapshot().context.disputeReason ?? undefined;
   }
 
   get state(): ConversationState {
@@ -99,6 +116,7 @@ export class TurnHandler {
       shouldHangup,
       state: nextState,
       ...(outcome !== undefined && { outcome }),
+      ...(parsed.data.usage !== undefined && { usage: parsed.data.usage }),
     };
   }
 }

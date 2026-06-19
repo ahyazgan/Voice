@@ -1,10 +1,13 @@
 import { WebSocketServer } from 'ws';
+import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { env } from './config.js';
 import { logger, LATENCY_TARGET_MS } from './telemetry.js';
 import { loadProviders } from './providers/index.js';
 import { Orchestrator } from './orchestrator.js';
 import { startPlatformCall } from './phase1.js';
+import { handleRetellWebSocket } from './providers/platform/retell.js';
+import { handleTelnyxMediaWs } from './providers/telephony/telnyx.js';
 
 const providers = loadProviders();
 
@@ -24,12 +27,44 @@ logger.info(
 );
 
 if (env.VOICE_MODE === 'platform') {
-  // Faz 1: ses akışı platformda. Buradaki WS sunucu yalnızca "arama başlat"
-  // komutlarını dinler; gerçek ses yolu platform tarafından kurulur.
-  const wss = new WebSocketServer({ port: env.VOICE_WS_PORT });
-  logger.info({ port: env.VOICE_WS_PORT, mode: 'platform' }, 'control ws listening');
+  // Faz 1: ses akışı platformda. Bu portta İKİ WS rolü var, path'e göre ayrılır:
+  //   /control               → worker'ın "arama başlat" (start) frame'ini dinler.
+  //   /llm-websocket/:callId  → Retell'in Custom-LLM WS'i (her tur burada gelir).
+  // Path routing için ham HTTP sunucu + `noServer` WSS'ler + upgrade dispatcher.
+  const httpServer = createServer((_req, res) => {
+    // Sağlık kontrolü / yanlış istek: WS dışı HTTP'ye kısa cevap.
+    res.writeHead(426, { 'Content-Type': 'text/plain' });
+    res.end('WebSocket only');
+  });
 
-  wss.on('connection', (ws) => {
+  const controlWss = new WebSocketServer({ noServer: true });
+  const llmWss = new WebSocketServer({ noServer: true });
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const path = (req.url ?? '').split('?')[0] ?? '';
+
+    if (path === '/control' || path === '/') {
+      controlWss.handleUpgrade(req, socket, head, (ws) => {
+        controlWss.emit('connection', ws, req);
+      });
+      return;
+    }
+
+    // /llm-websocket/{callId} — son segment bizim callId.
+    const llmMatch = path.match(/^\/llm-websocket\/(.+)$/);
+    if (llmMatch) {
+      const callId = decodeURIComponent(llmMatch[1]!);
+      llmWss.handleUpgrade(req, socket, head, (ws) => {
+        void handleRetellWebSocket(ws, callId);
+      });
+      return;
+    }
+
+    socket.destroy();
+  });
+
+  // --- control: worker → arama başlat -----------------------------------------
+  controlWss.on('connection', (ws) => {
     ws.once('message', async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
@@ -59,12 +94,42 @@ if (env.VOICE_MODE === 'platform') {
       }
     });
   });
-} else {
-  // Faz 2: kendi cascade. Telefon sağlayıcı ses akışını bu WS'ye bağlar.
-  const wss = new WebSocketServer({ port: env.VOICE_WS_PORT });
-  logger.info({ port: env.VOICE_WS_PORT, mode: 'cascade' }, 'audio ws listening');
 
-  wss.on('connection', (ws) => {
+  httpServer.listen(env.VOICE_WS_PORT, () => {
+    logger.info(
+      { port: env.VOICE_WS_PORT, mode: 'platform', paths: ['/control', '/llm-websocket/:callId'] },
+      'platform ws listening',
+    );
+  });
+} else {
+  // Faz 2: kendi cascade. İki WS rolü, path'e göre ayrılır (platform dalıyla aynı kalıp):
+  //   /control                → worker'ın "arama başlat" frame'i → placeCall + Orchestrator.
+  //   /telnyx-media/:callId    → Telnyx'in INBOUND media stream'i (ses buradan akar).
+  const httpServer = createServer((_req, res) => {
+    res.writeHead(426, { 'Content-Type': 'text/plain' });
+    res.end('WebSocket only');
+  });
+
+  const controlWss = new WebSocketServer({ noServer: true });
+  const mediaWss = new WebSocketServer({ noServer: true });
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const path = (req.url ?? '').split('?')[0] ?? '';
+
+    if (path === '/control' || path === '/') {
+      controlWss.handleUpgrade(req, socket, head, (ws) => controlWss.emit('connection', ws, req));
+      return;
+    }
+    const mediaMatch = path.match(/^\/telnyx-media\/(.+)$/);
+    if (mediaMatch) {
+      const callId = decodeURIComponent(mediaMatch[1]!);
+      mediaWss.handleUpgrade(req, socket, head, (ws) => handleTelnyxMediaWs(ws, callId));
+      return;
+    }
+    socket.destroy();
+  });
+
+  controlWss.on('connection', (ws) => {
     ws.once('message', async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
@@ -88,7 +153,10 @@ if (env.VOICE_MODE === 'platform') {
               consentToRecord: msg.consent === true,
             },
             session,
-            sampleRate: msg.sampleRate ?? 16000,
+            // Gerçek telefon hattı 8kHz μ-law taşır (Deepgram μ-law/8000, ElevenLabs
+            // ulaw_8000 → uçtan uca resample gerekmez). Mock telephony yerel/WAV
+            // testinde 16k kullanabilir. msg.sampleRate her zaman önceliklidir.
+            sampleRate: msg.sampleRate ?? (providers.telephony.name === 'mock' ? 16000 : 8000),
             onShutdown: (reason) => {
               if (ws.readyState === ws.OPEN) ws.close(1000, reason);
             },
@@ -101,5 +169,12 @@ if (env.VOICE_MODE === 'platform') {
         ws.close(1011, 'internal');
       }
     });
+  });
+
+  httpServer.listen(env.VOICE_WS_PORT, () => {
+    logger.info(
+      { port: env.VOICE_WS_PORT, mode: 'cascade', paths: ['/control', '/telnyx-media/:callId'] },
+      'cascade ws listening',
+    );
   });
 }

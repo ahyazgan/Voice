@@ -36,6 +36,8 @@ export class Orchestrator {
   private telemetry: CallTelemetry;
   private sttSession;
   private ttsPlayback: { stop: () => void } | null = null;
+  /** Bu turda ilk partial geldi mi — caller_speaking'i tek kez işaretlemek için. */
+  private turnOpen = false;
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -52,18 +54,29 @@ export class Orchestrator {
     opts.session.onHangup(() => void this.shutdown('hangup'));
 
     this.sttSession.onEvent((evt) => {
-      if (evt.type === 'partial' && this.ttsPlayback) {
-        // barge-in: ZORUNLU. <200ms hedef.
-        // 1) Bizim TTS stream'imizi kes — yeni paket göndermeyi durdur.
-        // 2) Telefon kuyruğundaki ÇALMAMIŞ paketleri sil. Bu olmazsa müşteri
-        //    konuşurken AI'ın 1-2 saniyelik buffer'ı çalmaya devam eder.
-        this.ttsPlayback.stop();
-        this.opts.session.stopPlayback();
-        this.ttsPlayback = null;
-        this.telemetry.mark('barge_in');
+      if (evt.type === 'partial') {
+        // Tur başlangıcı: müşteri konuşmaya başladı. KPI penceresinin (caller→
+        // ilk-AI-sesi) başlangıcı burası. Tur içinde yalnızca İLK partial'da.
+        if (!this.turnOpen) {
+          this.turnOpen = true;
+          this.telemetry.mark('caller_speaking');
+        }
+        if (this.ttsPlayback) {
+          // barge-in: ZORUNLU. <200ms hedef.
+          // 1) Bizim TTS stream'imizi kes — yeni paket göndermeyi durdur.
+          // 2) Telefon kuyruğundaki ÇALMAMIŞ paketleri sil. Bu olmazsa müşteri
+          //    konuşurken AI'ın 1-2 saniyelik buffer'ı çalmaya devam eder.
+          this.ttsPlayback.stop();
+          this.opts.session.stopPlayback();
+          this.ttsPlayback = null;
+          this.telemetry.mark('barge_in');
+        }
       }
       if (evt.type === 'final') {
         this.telemetry.mark('stt_final');
+        this.turnOpen = false; // tur kapandı, sonraki partial yeni turu açar
+        // Maliyet: STT bu turda kaç saniye ses işledi. Düşersek sttSec=0 raporlanır.
+        this.telemetry.addSttSeconds(evt.durationMs / 1000);
         void this.onUserTurn(evt.text);
       }
     });
@@ -78,6 +91,9 @@ export class Orchestrator {
       const decision = await this.turn.handleUserText(userText);
       // LLM streaming yok; respond() döndüğü an "ilk token = tam yanıt" sayıyoruz.
       this.telemetry.markOnce('llm_first_token');
+      if (decision.usage) {
+        this.telemetry.addLlmTokens(decision.usage.tokensIn, decision.usage.tokensOut);
+      }
       await this.speak(decision.reply, { trackTurn: true });
       this.telemetry.endTurn();
 
@@ -141,6 +157,10 @@ export class Orchestrator {
       postFinalize({
         callId: this.opts.callContext.callId,
         outcome,
+        consentToRecord: this.opts.callContext.consentToRecord,
+        ...(this.turn.promisedAmount !== undefined && { promisedAmount: this.turn.promisedAmount }),
+        ...(this.turn.promisedDate !== undefined && { promisedDate: this.turn.promisedDate }),
+        ...(this.turn.disputeReason !== undefined && { disputeReason: this.turn.disputeReason }),
         summary,
         transcript: this.turn.transcript,
       }),
