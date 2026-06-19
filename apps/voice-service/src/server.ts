@@ -7,6 +7,7 @@ import { loadProviders } from './providers/index.js';
 import { Orchestrator } from './orchestrator.js';
 import { startPlatformCall } from './phase1.js';
 import { handleRetellWebSocket } from './providers/platform/retell.js';
+import { handleVapiChatCompletion, type VapiChatRequest } from './providers/platform/vapi.js';
 import { handleTelnyxMediaWs } from './providers/telephony/telnyx.js';
 
 const providers = loadProviders();
@@ -31,8 +32,31 @@ if (env.VOICE_MODE === 'platform') {
   //   /control               → worker'ın "arama başlat" (start) frame'ini dinler.
   //   /llm-websocket/:callId  → Retell'in Custom-LLM WS'i (her tur burada gelir).
   // Path routing için ham HTTP sunucu + `noServer` WSS'ler + upgrade dispatcher.
-  const httpServer = createServer((_req, res) => {
-    // Sağlık kontrolü / yanlış istek: WS dışı HTTP'ye kısa cevap.
+  const httpServer = createServer((req, res) => {
+    // Vapi Custom-LLM: gelen OpenAI-uyumlu POST /vapi-llm/{callId}/chat/completions.
+    const path = (req.url ?? '').split('?')[0] ?? '';
+    const vapiMatch = path.match(/^\/vapi-llm\/(.+)\/chat\/completions$/);
+    if (req.method === 'POST' && vapiMatch) {
+      const callId = decodeURIComponent(vapiMatch[1]!);
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c as Buffer));
+      req.on('end', () => {
+        void (async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString()) as VapiChatRequest;
+            const result = await handleVapiChatCompletion(callId, body);
+            res.writeHead(result.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result.body));
+          } catch (err) {
+            logger.error({ err, callId }, 'vapi llm request failed');
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'internal' }));
+          }
+        })();
+      });
+      return;
+    }
+    // Diğer HTTP istekleri: WS dışı, kısa cevap.
     res.writeHead(426, { 'Content-Type': 'text/plain' });
     res.end('WebSocket only');
   });

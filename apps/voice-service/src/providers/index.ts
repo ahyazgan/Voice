@@ -16,6 +16,7 @@ import { MockLLM } from './llm/mock.js';
 import { OpenAILLM } from './llm/openai.js';
 import { MockOrchestrationPlatform } from './platform/mock.js';
 import { RetellOrchestrationPlatform } from './platform/retell.js';
+import { VapiOrchestrationPlatform } from './platform/vapi.js';
 
 export interface ProviderBundle {
   telephony: ITelephonyProvider;
@@ -107,7 +108,12 @@ function pickPlatform(name: string): IOrchestrationPlatform {
         agentId: requireEnv('RETELL_AGENT_ID'),
         fromNumberE164: requireEnv('RETELL_FROM_NUMBER'),
       });
-    // 'vapi' → eklenecek
+    case 'vapi':
+      return new VapiOrchestrationPlatform({
+        apiKey: requireEnv('VAPI_API_KEY'),
+        assistantId: requireEnv('VAPI_ASSISTANT_ID'),
+        phoneNumberId: requireEnv('VAPI_PHONE_NUMBER_ID'),
+      });
     default:
       throw new Error(`Unknown orchestration platform: ${name}`);
   }

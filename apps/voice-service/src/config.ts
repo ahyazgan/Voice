@@ -37,6 +37,12 @@ const EnvSchema = z.object({
   RETELL_AGENT_ID: z.string().optional(),
   RETELL_FROM_NUMBER: z.string().optional(),
 
+  // Vapi (ORCHESTRATION_PROVIDER=vapi ise VAPI_API_KEY + assistant + numara zorunlu).
+  // Vapi Custom-LLM modunda assistant, model.url'i bizim /vapi-llm/{callId}/chat/
+  // completions adresimize işaret eder; OpenAI-uyumlu chat-completion bekler.
+  VAPI_ASSISTANT_ID: z.string().optional(),
+  VAPI_PHONE_NUMBER_ID: z.string().optional(),
+
   // ElevenLabs (TTS_PROVIDER=elevenlabs ise ELEVENLABS_API_KEY zorunlu).
   // eleven_turbo_v2_5 = en hızlı (~300ms), Türkçe destekli.
   // Voice ID kütüphaneden seç: https://elevenlabs.io/app/voice-library
