@@ -18,16 +18,23 @@ const EnvSchema = z.object({
   // OpenAI (LLM_PROVIDER=openai ise OPENAI_API_KEY zorunlu).
   // Hız öncelikli: gpt-4o-mini (telefon konuşması için sweet spot).
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
-  OPENAI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
+  // 0.3 çok düşüktü → her arama neredeyse aynı kelimelerle (robotik). 0.55 doğal
+  // Türkçe çeşitliliği verir, yapılandırılmış çıktı (JSON schema) yine bağlar.
+  OPENAI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.55),
 
   // Deepgram (STT_PROVIDER=deepgram ise DEEPGRAM_API_KEY zorunlu).
   // Türkçe telefon STT: nova-2 modeli, μ-law/8000. interim_results→barge-in,
   // utterance_end/speech_final→tur sonu.
   DEEPGRAM_MODEL: z.string().default('nova-2'),
   DEEPGRAM_LANGUAGE: z.string().default('tr'),
-  // Endpointing: kaç ms sessizlik konuşma sonu sayılır (TR ritmine göre ayarla).
-  DEEPGRAM_ENDPOINTING_MS: z.coerce.number().int().nonnegative().default(300),
+  // Endpointing: kaç ms sessizlik konuşma sonu sayılır. 300ms TR için erkendi —
+  // müşteri cümle ortasında ("şey... yani...") duraksayınca AI araya giriyordu.
+  // 550ms daha doğal: insan da konuşmacının bitirmesini bekler.
+  DEEPGRAM_ENDPOINTING_MS: z.coerce.number().int().nonnegative().default(550),
   DEEPGRAM_UTTERANCE_END_MS: z.coerce.number().int().nonnegative().default(1000),
+  // Müşteri hiç cevap vermezse: bu kadar ms sonra AI "Alo, orada mısınız?" der;
+  // ikinci kez de sessizlikse aramayı kapatır (sonsuz bekleme önlenir).
+  SILENCE_PROMPT_MS: z.coerce.number().int().positive().default(8000),
 
   // Retell (ORCHESTRATION_PROVIDER=retell ise RETELL_API_KEY + agent zorunlu).
   // Retell aramayı yürütür; her müşteri turunda Custom-LLM WS üzerinden bize bağlanır.
@@ -44,12 +51,23 @@ const EnvSchema = z.object({
   VAPI_PHONE_NUMBER_ID: z.string().optional(),
 
   // ElevenLabs (TTS_PROVIDER=elevenlabs ise ELEVENLABS_API_KEY zorunlu).
-  // eleven_turbo_v2_5 = en hızlı (~300ms), Türkçe destekli.
-  // Voice ID kütüphaneden seç: https://elevenlabs.io/app/voice-library
+  // ⚠️ VOICE ID: Varsayılan '21m00Tcm4TlvDq8ikWAM' (Rachel) İNGİLİZCE bir sestir —
+  // Türkçe metni İngilizce sese okutmak doğallığı yok eder (#1 robotiklik kaynağı).
+  // ÜRETİMDEN ÖNCE Türkçe-native bir ses seç ve ELEVENLABS_VOICE_ID'yi onunla doldur:
+  // https://elevenlabs.io/app/voice-library → dil filtresi "Turkish" → telefonda yan yana dinle.
   ELEVENLABS_VOICE_ID: z.string().default('21m00Tcm4TlvDq8ikWAM'),
-  ELEVENLABS_MODEL: z.string().default('eleven_turbo_v2_5'),
-  ELEVENLABS_STABILITY: z.coerce.number().min(0).max(1).default(0.5),
-  ELEVENLABS_SIMILARITY: z.coerce.number().min(0).max(1).default(0.75),
+  // multilingual_v2 = Türkçe'de turbo'dan DAHA DOĞAL (fonem/prozodi), ~2x yavaş.
+  // Doğallık ürünün farklılaştırıcısı olduğundan varsayılan bu; gecikme sorunsa
+  // eleven_turbo_v2_5'e (hız ~300ms) düş ve telefon kalitesinde yan yana dinle.
+  ELEVENLABS_MODEL: z.string().default('eleven_multilingual_v2'),
+  // Telefon (8kHz) için biraz daha tutarlı/net: stability 0.5→0.6, similarity 0.75→0.7.
+  ELEVENLABS_STABILITY: z.coerce.number().min(0).max(1).default(0.6),
+  ELEVENLABS_SIMILARITY: z.coerce.number().min(0).max(1).default(0.7),
+
+  // Ajan kimliği (prompt + rıza anonsunda kullanılır). İnsan kendini tanıtır;
+  // jenerik "Tahsilat Asistanı" yerine gerçek bir isim + işletme adı daha doğal.
+  AGENT_NAME: z.string().default('Zeynep'),
+  COMPANY_NAME: z.string().default('işletmemiz'),
 
   LOG_LEVEL: z.string().default('info'),
 

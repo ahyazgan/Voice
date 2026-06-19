@@ -16,11 +16,33 @@ import type {
   LLMIntent,
   LLMRequest,
   LLMStructuredOutput,
+  StructuredStream,
   TranscriptTurn,
 } from '@voice/shared';
 import { env } from '../../config.js';
 import { logger } from '../../telemetry.js';
 import { intentsForState } from '../../prompts/index.js';
+import { SayStreamExtractor } from './sayStream.js';
+
+interface RawTurn {
+  say: string;
+  intent: LLMIntent;
+  fields: { amount: number | null; date: string | null; reason: string | null } | null;
+}
+
+/** Strict-mode null'lı ham çıktıyı temiz LLMStructuredOutput'a çevirir. */
+function toStructured(raw: RawTurn, usage?: { tokensIn: number; tokensOut: number }): LLMStructuredOutput {
+  const out: LLMStructuredOutput = { say: raw.say, intent: raw.intent };
+  if (raw.fields) {
+    const fields: NonNullable<LLMStructuredOutput['fields']> = {};
+    if (raw.fields.amount !== null) fields.amount = raw.fields.amount;
+    if (raw.fields.date !== null) fields.date = raw.fields.date;
+    if (raw.fields.reason !== null) fields.reason = raw.fields.reason;
+    if (Object.keys(fields).length > 0) out.fields = fields;
+  }
+  if (usage) out.usage = usage;
+  return out;
+}
 
 /** Her çağrıda state-spesifik intent enum'u ile schema kurar. */
 function buildSchema(allowedIntents: readonly LLMIntent[]) {
@@ -92,29 +114,55 @@ export class OpenAILLM implements ILLMProvider {
       return { say: 'Kusura bakmayın, kısa tekrar eder misiniz?', intent: 'NO_RESPONSE' };
     }
 
-    const raw = JSON.parse(choice.message.content) as {
-      say: string;
-      intent: LLMIntent;
-      fields: { amount: number | null; date: string | null; reason: string | null } | null;
-    };
+    const raw = JSON.parse(choice.message.content) as RawTurn;
+    // Maliyet telemetrisi: token kullanımını taşı (sonuç-bazlı fiyatlama buna dayanır).
+    const usage = completion.usage
+      ? { tokensIn: completion.usage.prompt_tokens, tokensOut: completion.usage.completion_tokens }
+      : undefined;
+    return toStructured(raw, usage);
+  }
 
-    const out: LLMStructuredOutput = { say: raw.say, intent: raw.intent };
-    if (raw.fields) {
-      const fields: NonNullable<LLMStructuredOutput['fields']> = {};
-      if (raw.fields.amount !== null) fields.amount = raw.fields.amount;
-      if (raw.fields.date !== null) fields.date = raw.fields.date;
-      if (raw.fields.reason !== null) fields.reason = raw.fields.reason;
-      if (Object.keys(fields).length > 0) out.fields = fields;
+  /**
+   * say cümlelerini akıtır (TTS hemen başlar), JSON bitince intent+fields döner.
+   * stream_options.include_usage ile token sayısını da alırız.
+   */
+  async *streamReply(req: LLMRequest): StructuredStream {
+    const messages = buildMessages(req);
+    const schema = buildSchema(intentsForState(req.context.state));
+    const extractor = new SayStreamExtractor();
+
+    const stream = await this.client.chat.completions.create({
+      model: this.model,
+      temperature: this.temperature,
+      max_tokens: 500,
+      messages,
+      response_format: { type: 'json_schema', json_schema: { name: 'collections_turn', strict: true, schema } },
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+
+    let fullJson = '';
+    let usage: { tokensIn: number; tokensOut: number } | undefined;
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content ?? '';
+      if (delta) {
+        fullJson += delta;
+        for (const sentence of extractor.push(delta)) yield sentence;
+      }
+      if (chunk.usage) {
+        usage = { tokensIn: chunk.usage.prompt_tokens, tokensOut: chunk.usage.completion_tokens };
+      }
     }
-    // Maliyet telemetrisi: token kullanımını taşı. Sonuç-bazlı fiyatlama bu
-    // sayıya dayanır; düşersek CostBreakdown.totalTRY eksik hesaplanır.
-    if (completion.usage) {
-      out.usage = {
-        tokensIn: completion.usage.prompt_tokens,
-        tokensOut: completion.usage.completion_tokens,
-      };
+    for (const sentence of extractor.flush()) yield sentence;
+
+    // JSON tamamlandı → intent + fields. Parse hatasında güvenli fallback.
+    try {
+      const raw = JSON.parse(fullJson) as RawTurn;
+      return toStructured(raw, usage);
+    } catch {
+      logger.warn({ callId: req.context.callContext.callId }, 'openai stream JSON parse failed');
+      return { say: extractor.fullSay || 'Sizi tam duyamadım.', intent: 'NO_RESPONSE', ...(usage && { usage }) };
     }
-    return out;
   }
 }
 

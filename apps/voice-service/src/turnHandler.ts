@@ -73,6 +73,73 @@ export class TurnHandler {
     this.history.push({ speaker: 'agent', text, at: new Date().toISOString() });
   }
 
+  /**
+   * Streaming tur: say cümlelerini yield eder (orchestrator hemen TTS'e basar),
+   * dönüşte TurnDecision (state ilerletilmiş). LLM streamReply DESTEKLEMİYORSA
+   * çağıran handleUserText'e düşmeli (bu generator yalnızca destekliyse çağrılır).
+   * reply = tüm cümlelerin birleşimi (history/transcript için).
+   */
+  async *handleUserTextStreaming(
+    userText: string,
+  ): AsyncGenerator<string, TurnDecision, void> {
+    const startedAt = performance.now();
+    this.history.push({ speaker: 'customer', text: userText, at: new Date().toISOString() });
+    const state = currentState(this.actor);
+
+    const stream = this.llm.streamReply!({
+      systemPrompt: systemPromptFor(state, this.callContext),
+      context: { callContext: this.callContext, state, history: this.history },
+      userText,
+    });
+
+    const sentences: string[] = [];
+    let result = await stream.next();
+    while (!result.done) {
+      sentences.push(result.value);
+      yield result.value; // orchestrator TTS'e basar
+      result = await stream.next();
+    }
+    const raw = result.value; // generator dönüş değeri = tam yapılandırılmış çıktı
+
+    const parsed = LLMStructuredOutputSchema.safeParse(raw);
+    if (!parsed.success) {
+      logger.warn({ issues: parsed.error.issues, callId: this.callContext.callId }, 'llm stream output invalid');
+      const reply = sentences.join(' ') || 'Sizi tam anlayamadım, tekrar eder misiniz?';
+      this.recordAgentUtterance(reply);
+      return { reply, shouldHangup: false, state };
+    }
+
+    const { say, intent, fields } = parsed.data;
+    const event = eventFromIntent(intent, fields);
+    if (event) this.actor.send(event);
+
+    const snap = this.actor.getSnapshot();
+    const nextState = snap.value as ConversationState;
+    const shouldHangup = snap.status === 'done';
+    const reply = sentences.join(' ') || say;
+
+    this.history.push({
+      speaker: 'agent',
+      text: reply,
+      at: new Date().toISOString(),
+      latencyMs: Math.round(performance.now() - startedAt),
+    });
+
+    const outcome = snap.context.outcome ?? undefined;
+    return {
+      reply,
+      shouldHangup,
+      state: nextState,
+      ...(outcome !== undefined && { outcome }),
+      ...(parsed.data.usage !== undefined && { usage: parsed.data.usage }),
+    };
+  }
+
+  /** LLM streaming destekliyor mu? Orchestrator buna göre yol seçer. */
+  get supportsStreaming(): boolean {
+    return typeof this.llm.streamReply === 'function';
+  }
+
   async handleUserText(userText: string): Promise<TurnDecision> {
     const startedAt = performance.now();
     this.history.push({ speaker: 'customer', text: userText, at: new Date().toISOString() });

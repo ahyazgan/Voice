@@ -4,6 +4,7 @@ import type {
   IOrchestrationPlatform,
   PlatformCallSession,
 } from '@voice/shared';
+import { normalizeForTTS } from '@voice/shared';
 import { TurnHandler } from './turnHandler.js';
 import { CONSENT_ANNOUNCEMENT } from './prompts/index.js';
 import { CallTelemetry, logger } from './telemetry.js';
@@ -51,7 +52,9 @@ export async function startPlatformCall(deps: {
         'phase1 turn',
       );
       return {
-        reply: decision.reply,
+        // Faz 1'de TTS platformda; platforma giden metni de normalize et
+        // (sayı/tarih insan okunuşu) — transcript ham decision.reply'ı korur.
+        reply: normalizeForTTS(decision.reply),
         state: decision.state,
         shouldHangup: decision.shouldHangup,
         ...(decision.outcome !== undefined && { outcome: decision.outcome }),

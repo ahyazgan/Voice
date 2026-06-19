@@ -82,11 +82,22 @@ export interface LLMRequest {
   userText: string;
 }
 
+/**
+ * Streaming sonucu: `say` metni CÜMLE CÜMLE akar (yield), JSON tamamlanınca tam
+ * yapılandırılmış çıktı (intent + fields + usage) dönüş değeri olur. Orchestrator
+ * cümleleri hemen TTS'e basar (gecikme düşer), intent'i sonda state machine'e verir.
+ */
+export type StructuredStream = AsyncGenerator<string, LLMStructuredOutput, void>;
+
 export interface ILLMProvider {
   readonly name: string;
-  /** Yapılandırılmış çıktı döner. Stream istenirse `streamReply` parça parça reply metnini akıtır. */
+  /** Tek seferde tam yapılandırılmış çıktı döner (streaming desteklemeyen yollar için). */
   respond(req: LLMRequest): Promise<LLMStructuredOutput>;
-  streamReply?(req: LLMRequest): AsyncIterable<string>;
+  /**
+   * `say` cümlelerini akıtır, dönüşte tam yapılandırılmış çıktıyı verir.
+   * Destekleyen sağlayıcı implemente eder; yoksa orchestrator respond()'a düşer.
+   */
+  streamReply?(req: LLMRequest): StructuredStream;
 }
 
 // ---------- Orkestrasyon Platformu (Faz 1: Retell / Vapi) ----------

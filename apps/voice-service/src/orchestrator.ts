@@ -6,9 +6,11 @@ import type {
   ITTSProvider,
   TelephonySession,
 } from '@voice/shared';
+import { normalizeForTTS } from '@voice/shared';
 import { CallTelemetry, logger } from './telemetry.js';
-import { getCostRates } from './config.js';
-import { TurnHandler } from './turnHandler.js';
+import { getCostRates, env } from './config.js';
+import { isBackchannel } from './backchannel.js';
+import { TurnHandler, type TurnDecision } from './turnHandler.js';
 import { CONSENT_ANNOUNCEMENT } from './prompts/index.js';
 import { postFinalize } from './persist.js';
 
@@ -38,6 +40,13 @@ export class Orchestrator {
   private ttsPlayback: { stop: () => void } | null = null;
   /** Bu turda ilk partial geldi mi — caller_speaking'i tek kez işaretlemek için. */
   private turnOpen = false;
+  /** Müşteri AI'ı kesti mi — streaming turda kalan cümleleri atlamak için. */
+  private interrupted = false;
+  /** AI şu an konuşuyor mu — backchannel filtresi bunun için. */
+  private speaking = false;
+  /** Sessizlik dürtme sayacı + kaç kez dürtüldü (2. sessizlikte kapat). */
+  private silenceTimer: NodeJS.Timeout | null = null;
+  private silencePrompts = 0;
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -69,14 +78,23 @@ export class Orchestrator {
           this.ttsPlayback.stop();
           this.opts.session.stopPlayback();
           this.ttsPlayback = null;
+          this.interrupted = true; // streaming turda kalan cümleleri atla
           this.telemetry.mark('barge_in');
         }
       }
       if (evt.type === 'final') {
+        // Backchannel filtresi: AI konuşurken gelen kısa onay ("hı hı", "tamam")
+        // tur DEĞİLDİR — insan da dinlerken bunlarla kesilmez. Yok say, devam et.
+        if (this.speaking && isBackchannel(evt.text)) {
+          this.interrupted = false; // yanlış barge-in'i geri al (AI konuşmaya devam)
+          return;
+        }
         this.telemetry.mark('stt_final');
         this.turnOpen = false; // tur kapandı, sonraki partial yeni turu açar
+        this.interrupted = false; // yeni tur: kesinti bayrağını sıfırla
         // Maliyet: STT bu turda kaç saniye ses işledi. Düşersek sttSec=0 raporlanır.
         this.telemetry.addSttSeconds(evt.durationMs / 1000);
+        this.silencePrompts = 0; // müşteri konuştu → sessizlik sayacını sıfırla
         void this.onUserTurn(evt.text);
       }
     });
@@ -84,21 +102,21 @@ export class Orchestrator {
 
   async start(): Promise<void> {
     await this.speak(CONSENT_ANNOUNCEMENT, { trackTurn: false });
+    this.armSilenceTimer(); // anons bitti; müşteri konuşmazsa dürt
   }
 
   private async onUserTurn(userText: string): Promise<void> {
     try {
-      const decision = await this.turn.handleUserText(userText);
-      // LLM streaming yok; respond() döndüğü an "ilk token = tam yanıt" sayıyoruz.
-      this.telemetry.markOnce('llm_first_token');
-      if (decision.usage) {
-        this.telemetry.addLlmTokens(decision.usage.tokensIn, decision.usage.tokensOut);
-      }
-      await this.speak(decision.reply, { trackTurn: true });
+      const decision = this.turn.supportsStreaming
+        ? await this.streamingTurn(userText)
+        : await this.blockingTurn(userText);
       this.telemetry.endTurn();
 
       if (decision.shouldHangup) {
         await this.shutdown(`state_terminal:${decision.outcome ?? 'unknown'}`);
+      } else {
+        // AI sustu, sıra müşteride. Cevap gelmezse SILENCE_PROMPT_MS sonra dürt.
+        this.armSilenceTimer();
       }
     } catch (err) {
       logger.error({ err, callId: this.opts.callContext.callId }, 'turn failed');
@@ -110,11 +128,47 @@ export class Orchestrator {
     }
   }
 
+  /** Streaming yol: ilk cümle geldiği an TTS'e basılır → gecikme düşer (insan gibi). */
+  private async streamingTurn(userText: string): Promise<TurnDecision> {
+    const gen = this.turn.handleUserTextStreaming(userText);
+    let first = true;
+    let next = await gen.next();
+    while (!next.done) {
+      if (first) {
+        this.telemetry.markOnce('llm_first_token'); // ilk cümle = ilk anlamlı token
+        first = false;
+      }
+      // Müşteri kestiyse kalan cümleleri SESLENDİRME (insan da kesilince susar),
+      // ama generator'ı tüket ki state machine ilerlesin ve decision dönsün.
+      if (!this.interrupted) {
+        await this.speak(next.value, { trackTurn: true });
+      }
+      next = await gen.next();
+    }
+    const decision = next.value;
+    if (decision.usage) this.telemetry.addLlmTokens(decision.usage.tokensIn, decision.usage.tokensOut);
+    return decision;
+  }
+
+  /** Streaming desteklenmeyen sağlayıcılar: tüm yanıtı bekle, sonra konuş. */
+  private async blockingTurn(userText: string): Promise<TurnDecision> {
+    const decision = await this.turn.handleUserText(userText);
+    this.telemetry.markOnce('llm_first_token');
+    if (decision.usage) this.telemetry.addLlmTokens(decision.usage.tokensIn, decision.usage.tokensOut);
+    await this.speak(decision.reply, { trackTurn: true });
+    return decision;
+  }
+
   private async speak(text: string, opts: { trackTurn: boolean }): Promise<void> {
     let stopped = false;
     this.ttsPlayback = { stop: () => (stopped = true) };
+    this.speaking = true;
+    this.clearSilenceTimer(); // AI konuşurken sessizlik dürtmesi anlamsız
 
-    const stream = this.deps.tts.synthesizeStream(text, {
+    // Sayı/tarih/para'yı insan okunuşuna çevir (TTS doğal okusun). History ve
+    // maliyet ham metni kullanır; yalnızca SES bu normalize metni okur.
+    const spoken = normalizeForTTS(text);
+    const stream = this.deps.tts.synthesizeStream(spoken, {
       voice: 'tr-default',
       sampleRate: this.opts.sampleRate,
       language: 'tr-TR',
@@ -132,10 +186,39 @@ export class Orchestrator {
 
     this.telemetry.addTtsChars(text.length);
     this.ttsPlayback = null;
+    this.speaking = false;
     if (!opts.trackTurn) {
       // CONSENT_ANNOUNCEMENT / hata mesajı gibi: history'ye agent ifadesi olarak yaz.
       this.turn.recordAgentUtterance(text);
     }
+  }
+
+  // --- Sessizlik yönetimi: müşteri cevap vermezse dürt, sonra kapat ----------
+  private armSilenceTimer(): void {
+    this.clearSilenceTimer();
+    this.silenceTimer = setTimeout(() => void this.onSilence(), env.SILENCE_PROMPT_MS);
+  }
+
+  private clearSilenceTimer(): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+  }
+
+  /** Sessizlik süresi doldu: 1. kez nazikçe dürt, 2. kez kapat (sonsuz bekleme yok). */
+  private async onSilence(): Promise<void> {
+    if (this.shuttingDown || this.speaking) return;
+    this.silencePrompts++;
+    if (this.silencePrompts >= 2) {
+      await this.speak('Şu an ulaşamıyorum, sizi sonra tekrar arayalım. İyi günler.', {
+        trackTurn: false,
+      });
+      await this.shutdown('silence');
+      return;
+    }
+    await this.speak('Alo, orada mısınız?', { trackTurn: false });
+    this.armSilenceTimer(); // tekrar bekle; yine sessizse kapanır
   }
 
   private shuttingDown = false;
@@ -143,6 +226,7 @@ export class Orchestrator {
   async shutdown(reason: string): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
+    this.clearSilenceTimer();
 
     const summary = this.telemetry.finalize();
     const outcome = this.turn.outcome ?? 'NO_ANSWER';
