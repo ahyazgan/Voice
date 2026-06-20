@@ -43,7 +43,10 @@ const FinalizeInput = z.object({
   promisedAmount: z.number().int().nonnegative().optional(),
   promisedDate: z.string().datetime().optional(),
   disputeReason: z.string().optional(),
+  paymentMethod: z.enum(['BANK_TRANSFER', 'CASH', 'CARD', 'INSTALLMENT']).optional(),
   recordingUrl: z.string().url().optional(),
+  // KVKK: kayıt rızası verildi mi (Retell webhook recordingUrl'i sonradan yazabilsin).
+  recordingConsent: z.boolean().default(false),
 
   // Telemetri özeti
   durationSec: z.number().nonnegative(),
@@ -60,6 +63,9 @@ const FinalizeInput = z.object({
     ttsChars: z.number().int().nonnegative(),
     totalTRY: z.number().nonnegative(),
   }),
+  // Faz 1: platformun raporladığı toplam maliyet (TRY). Varsa costTRY bununla
+  // doldurulur (Faz 1'de telemetri STT/TTS'i bilmez → cost.totalTRY eksik).
+  platformCostTRY: z.number().nonnegative().optional(),
 
   transcript: z.array(TranscriptTurnInput).default([]),
 });
@@ -133,7 +139,10 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
       return { ok: true, alreadyFinalized: true };
     }
 
-    const totalCostTRY = Math.round(body.cost.totalTRY * 100); // TRY → kuruş (DB int)
+    // Platform maliyeti varsa onu kullan (Faz 1: STT/TTS telemetri'de yok →
+    // cost.totalTRY LLM-only ve eksik). Yoksa telemetri toplamı (Faz 2: tam).
+    const effectiveCostTRY = body.platformCostTRY ?? body.cost.totalTRY;
+    const totalCostTRY = Math.round(effectiveCostTRY * 100); // TRY → kuruş (DB int)
 
     try {
     await prisma.$transaction([
@@ -156,6 +165,7 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           promisedDate: body.promisedDate ? new Date(body.promisedDate) : null,
           disputeReason: body.disputeReason ?? null,
           recordingUrl: body.recordingUrl ?? null,
+          recordingConsent: body.recordingConsent,
           costTRY: totalCostTRY,
           telephonySec: body.cost.telephonySec,
           sttSec: body.cost.sttSec,
@@ -172,6 +182,7 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           promisedDate: body.promisedDate ? new Date(body.promisedDate) : null,
           disputeReason: body.disputeReason ?? null,
           recordingUrl: body.recordingUrl ?? null,
+          recordingConsent: body.recordingConsent,
           costTRY: totalCostTRY,
           telephonySec: body.cost.telephonySec,
           sttSec: body.cost.sttSec,
@@ -194,6 +205,25 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           latencyMs: t.latencyMs ?? null,
         })),
       }),
+      // Ödeme sözü alındıysa takip için bir Payment(PROMISED) aç. Idempotent
+      // re-finalize: önce bu call'a bağlı eski PROMISED kaydı sil (tutar değişmiş
+      // olabilir), sonra yeniden oluştur. RECEIVED/PARTIAL kayıtlara DOKUNMA —
+      // onlar gerçek tahsilatı temsil eder, asla silinmez.
+      ...(body.outcome === 'PROMISE_TO_PAY' && body.promisedAmount && body.promisedAmount > 0
+        ? [
+            prisma.payment.deleteMany({ where: { callId: id, status: 'PROMISED' } }),
+            prisma.payment.create({
+              data: {
+                debtorId: call.debtorId,
+                callId: id,
+                amount: body.promisedAmount,
+                status: 'PROMISED',
+                method: body.paymentMethod ?? 'UNKNOWN',
+                promisedDate: body.promisedDate ? new Date(body.promisedDate) : null,
+              },
+            }),
+          ]
+        : []),
     ]);
     } catch (err) {
       // Transaction rollback → Call.status RUNNING'de kaldı. 500 dön ki
@@ -221,5 +251,63 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
 
     reply.code(200);
     return { ok: true };
+  });
+
+  // --- Retell event webhook'undan platform metadata (kayıt/maliyet/süre) -------
+  // Finalize'dan AYRI ve sonra gelebilir. recordingUrl yalnızca CallResult'ta
+  // recordingConsent=true ise yazılır (KVKK). cost/duration her zaman güncellenir.
+  const RecordingCostInput = z.object({
+    recordingUrl: z.string().url().optional(),
+    durationSec: z.number().int().nonnegative().optional(),
+    platformCostMinor: z.number().nonnegative().optional(),
+  });
+
+  app.post('/calls/:id/recording-cost', async (req, reply) => {
+    if (!requireInternalSecret(req, reply)) return reply;
+    const { id } = req.params as { id: string };
+    const body = RecordingCostInput.parse(req.body);
+
+    const result = await prisma.callResult.findUnique({
+      where: { callId: id },
+      select: { recordingConsent: true },
+    });
+    if (!result) {
+      // Finalize henüz yazılmamış olabilir (webhook erken geldi). 202 → Retell
+      // için yine de başarı; voice-service zaten 200 dönmüştü, retry istemiyoruz.
+      reply.code(202);
+      return { ok: false, reason: 'result_not_found_yet' };
+    }
+
+    const data: Record<string, unknown> = {};
+    // KVKK: kayıt URL'sini SADECE rıza varsa yaz. Rıza yoksa sessizce atla.
+    if (body.recordingUrl !== undefined && result.recordingConsent) {
+      data.recordingUrl = body.recordingUrl;
+    }
+    if (body.durationSec !== undefined) data.durationSec = body.durationSec;
+    if (body.platformCostMinor !== undefined) {
+      data.costTRY = Math.round(body.platformCostMinor * env.RETELL_COST_MINOR_TO_KURUS);
+    }
+
+    if (Object.keys(data).length === 0) {
+      return { ok: true, applied: [] as string[] };
+    }
+
+    // recordingUrl + durationSec Call'da, costTRY CallResult'ta; ikisini ayır.
+    const { durationSec, ...resultData } = data as {
+      durationSec?: number;
+      recordingUrl?: string;
+      costTRY?: number;
+    };
+    await prisma.$transaction([
+      ...(Object.keys(resultData).length
+        ? [prisma.callResult.update({ where: { callId: id }, data: resultData })]
+        : []),
+      ...(durationSec !== undefined
+        ? [prisma.call.update({ where: { id }, data: { durationSec } })]
+        : []),
+    ]);
+
+    req.log.info({ callId: id, applied: Object.keys(data) }, 'recording-cost applied');
+    return { ok: true, applied: Object.keys(data) };
   });
 }

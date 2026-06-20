@@ -122,10 +122,31 @@ export interface PlatformTurnDecision {
   outcome?: CallOutcome;
 }
 
+/**
+ * Platform arama sonu bilgisi. Faz 1'de ses/STT/TTS maliyeti platformdadır;
+ * platform `call_ended` olayında gerçek süreyi ve (sağlıyorsa) toplam maliyeti
+ * verir. Bunlar finalize'a taşınır → Faz 1'de de costTRY dolar (sonuç-bazlı
+ * fiyatlandırmanın temeli). Vermeyen platformda alanlar undefined kalır.
+ */
+export interface PlatformEndInfo {
+  reason: string;
+  transcript: TranscriptTurn[];
+  outcome?: CallOutcome;
+  /** Platformun raporladığı gerçek konuşma süresi (sn). */
+  durationSec?: number;
+  /** Platformun raporladığı toplam arama maliyeti (TRY). LLM maliyeti buna dahil olabilir. */
+  platformCostTRY?: number;
+  /**
+   * Platformun ses kaydı URL'si (Faz 1: kayıt platformda tutulur). KVKK: yalnızca
+   * rıza varsa finalize'a taşınır (persist.ts süzer). Saklama süresi dolunca silinir.
+   */
+  recordingUrl?: string;
+}
+
 export interface PlatformCallOptions {
   callContext: CallContext;
   onTurn: (input: PlatformTurnInput) => Promise<PlatformTurnDecision>;
-  onEnd?: (info: { reason: string; transcript: TranscriptTurn[]; outcome?: CallOutcome }) => void;
+  onEnd?: (info: PlatformEndInfo) => void;
   /** Açılış cümlesi (KVKK rıza anonsu vb.). Platform müşteri konuşmadan önce seslendirir. */
   openingUtterance: string;
 }
@@ -138,4 +159,24 @@ export interface PlatformCallSession {
 export interface IOrchestrationPlatform {
   readonly name: string;
   startCall(opts: PlatformCallOptions): Promise<PlatformCallSession>;
+}
+
+// ---------- Ses Kaydı Deposu (Faz 2: kayıt bizde) ----------
+//
+// Faz 1'de kayıt platformda tutulur (PlatformEndInfo.recordingUrl). Faz 2'de ses
+// bizden aktığı için kaydı KENDİMİZ saklarız: put() ile yükle, URL'yi finalize'a
+// koy; KVKK saklama süresi dolunca delete() ile sil. S3/GCS/yerel disk ardına alınır.
+
+export interface RecordingStorePutOptions {
+  callId: string;
+  /** İçerik türü (örn. 'audio/wav', 'audio/mpeg'). */
+  contentType: string;
+}
+
+export interface IRecordingStore {
+  readonly name: string;
+  /** Kayıt baytlarını saklar, erişilebilir/erişilebilir-yapılabilir URL döner. */
+  put(data: Uint8Array, opts: RecordingStorePutOptions): Promise<string>;
+  /** Saklama süresi dolan kaydı kalıcı siler. URL bilinmiyorsa/yoksa no-op. */
+  delete(url: string): Promise<void>;
 }

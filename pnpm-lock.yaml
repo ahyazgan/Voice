@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@prisma/client':
+        specifier: ^5.18.0
+        version: 5.22.0(prisma@5.22.0)
       '@types/node':
         specifier: ^20.14.0
         version: 20.19.41

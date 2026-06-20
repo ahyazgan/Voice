@@ -18,6 +18,7 @@
     "turbo": "^2.0.0",
     "typescript": "^5.5.0",
     "prisma": "^5.18.0",
+    "@prisma/client": "^5.18.0",
     "@types/node": "^20.14.0"
   },
   "engines": {

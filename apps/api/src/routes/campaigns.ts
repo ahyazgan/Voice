@@ -17,6 +17,53 @@ export async function campaignsRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  // --- ROI özeti: maliyet vs tahsilat (sonuç-bazlı fiyatlandırmanın temeli) ----
+  // Toplam maliyet = Σ CallResult.costTRY. Tahsil edilen = Σ Payment(RECEIVED|PARTIAL).
+  // Söz verilen ama gelmeyen (PROMISED/BROKEN) tahsilat sayılmaz — sadece gerçek para.
+  app.get('/campaigns/:id/summary', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const campaign = await prisma.campaign.findUnique({ where: { id } });
+    if (!campaign) {
+      reply.code(404);
+      return { error: 'not_found' };
+    }
+
+    const [byOutcome, costAgg, collectedAgg, promisedAgg] = await Promise.all([
+      prisma.call.groupBy({
+        by: ['outcome'],
+        where: { campaignId: id, outcome: { not: null } },
+        _count: true,
+      }),
+      prisma.callResult.aggregate({
+        where: { call: { campaignId: id } },
+        _sum: { costTRY: true },
+      }),
+      prisma.payment.aggregate({
+        where: { call: { campaignId: id }, status: { in: ['RECEIVED', 'PARTIAL'] } },
+        _sum: { amount: true },
+      }),
+      prisma.payment.aggregate({
+        where: { call: { campaignId: id }, status: { in: ['PROMISED', 'PARTIAL'] } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalCostKurus = costAgg._sum.costTRY ?? 0;
+    const collectedKurus = collectedAgg._sum.amount ?? 0;
+    const promisedKurus = promisedAgg._sum.amount ?? 0;
+
+    return {
+      campaignId: id,
+      outcomes: Object.fromEntries(byOutcome.map((o) => [o.outcome, o._count])),
+      // Tümü kuruş (DB int). Panel formatKurus ile gösterir.
+      totalCostKurus,
+      collectedKurus,
+      promisedKurus,
+      // Net = tahsil edilen - maliyet. Sonuç-bazlı komisyon bunun üstünden hesaplanır.
+      netKurus: collectedKurus - totalCostKurus,
+    };
+  });
+
   app.post('/campaigns', async (req, reply) => {
     const body = CreateCampaignSchema.parse(req.body);
     const campaign = await prisma.campaign.create({

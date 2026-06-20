@@ -47,6 +47,9 @@ export const LLMStructuredOutputSchema = z.object({
       amount: z.number().int().nonnegative().optional(),
       date: isoDateLike.optional(),
       reason: z.string().optional(),
+      // Ödeme yöntemi: müşteri "EFT'le / nakit / kartla / taksitle öderim" derse
+      // çıkarılır. Takip aramasının metnini ve Payment.method'u belirler.
+      paymentMethod: z.enum(['BANK_TRANSFER', 'CASH', 'CARD', 'INSTALLMENT']).optional(),
     })
     .optional(),
   // Maliyet telemetrisi taşıma alanı (LLM şemasının parçası değil; provider ekler).

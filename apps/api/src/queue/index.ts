@@ -15,6 +15,11 @@ const connection = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
 });
 
+/** Redis canlılık kontrolü (health probe). Bağlantı sorunluysa fırlatır. */
+export async function redisPing(): Promise<void> {
+  await connection.ping();
+}
+
 export const callQueue = new Queue<CallJobData>(CALL_QUEUE, { connection });
 
 export async function enqueueCall(

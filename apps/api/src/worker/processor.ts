@@ -69,7 +69,7 @@ export async function processCallJob(data: CallJobData): Promise<void> {
         amountDue: call.debtor.amountDue,
         currency: 'TRY' as const,
         dueDate: call.debtor.dueDate.toISOString(),
-        invoiceRef: call.debtor.invoiceRef ?? undefined,
+        ...(call.debtor.invoiceRef !== null && { invoiceRef: call.debtor.invoiceRef }),
       },
     });
   } catch (err) {
@@ -97,7 +97,13 @@ interface RunArgs {
 
 function runVoiceCall(args: RunArgs): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(env.VOICE_WS_URL);
+    // /control WS auth: voice-service CONTROL_AUTH_SECRET (yoksa INTERNAL_API_SECRET)
+    // bekler; aynı fallback'i burada uygula ve x-internal-secret header'ı ile gönder.
+    const controlSecret = env.CONTROL_AUTH_SECRET ?? env.INTERNAL_API_SECRET;
+    const ws = new WebSocket(
+      env.VOICE_WS_URL,
+      controlSecret ? { headers: { 'x-internal-secret': controlSecret } } : undefined,
+    );
     let settled = false;
     const finish = (err?: Error) => {
       if (settled) return;

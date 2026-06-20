@@ -8,11 +8,18 @@ export interface FinalizePayload {
   promisedAmount?: number;
   promisedDate?: string;
   disputeReason?: string;
+  paymentMethod?: 'BANK_TRANSFER' | 'CASH' | 'CARD' | 'INSTALLMENT';
   recordingUrl?: string;
   /** KVKK: rıza yoksa recordingUrl asla gönderilmez (default false = güvenli). */
   consentToRecord?: boolean;
   summary: CallFinalSummary;
   transcript: readonly TranscriptTurn[];
+  /**
+   * Faz 1: platformun raporladığı toplam maliyet (TRY). Faz 1'de STT/TTS maliyeti
+   * telemetri'de görünmez (ses platformda akar) → totalTRY eksik kalır. Platform
+   * bu değeri verirse API costTRY'ı bununla doldurur. Faz 2'de undefined (telemetri tam).
+   */
+  platformCostTRY?: number;
 }
 
 /**
@@ -40,12 +47,15 @@ export async function postFinalize(p: FinalizePayload): Promise<void> {
     promisedAmount: p.promisedAmount,
     promisedDate: p.promisedDate,
     disputeReason: p.disputeReason,
+    paymentMethod: p.paymentMethod,
     recordingUrl,
+    recordingConsent: p.consentToRecord === true,
     durationSec: p.summary.durationSec,
     avgResponseMs: p.summary.avgResponseMs ?? undefined,
     p95ResponseMs: p.summary.p95ResponseMs ?? undefined,
     bargeIns: p.summary.bargeIns,
     cost: p.summary.costBreakdown,
+    ...(p.platformCostTRY !== undefined && { platformCostTRY: p.platformCostTRY }),
     transcript: p.transcript,
   };
 
@@ -67,6 +77,47 @@ export async function postFinalize(p: FinalizePayload): Promise<void> {
   } catch (err) {
     // Hata yolunda da timer'ı temizle — aksi halde her başarısız POST bir timer sızdırır.
     logger.warn({ callId: p.callId, err }, 'finalize POST hatası');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface RecordingCostPayload {
+  callId: string;
+  recordingUrl?: string;
+  durationSec?: number;
+  /** Platform toplam maliyeti, minör birim (Retell combined_cost = cent). */
+  platformCostMinor?: number;
+}
+
+/**
+ * Retell event webhook'undan gelen platform-tarafı metadata'yı (kayıt URL'si,
+ * gerçek maliyet, süre) API'ye iletir. Finalize'dan AYRI ve ondan SONRA gelebilir
+ * (webhook ≠ WS kapanışı). API tarafı recordingUrl'i KVKK rıza kontrolünden
+ * geçirir (rıza yoksa yazmaz). Best-effort.
+ */
+export async function postRecordingCost(p: RecordingCostPayload): Promise<void> {
+  if (!env.API_BASE_URL) return;
+  const url = `${env.API_BASE_URL.replace(/\/$/, '')}/api/calls/${encodeURIComponent(p.callId)}/recording-cost`;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 5_000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(env.INTERNAL_API_SECRET && { 'x-internal-secret': env.INTERNAL_API_SECRET }),
+      },
+      body: JSON.stringify({
+        ...(p.recordingUrl !== undefined && { recordingUrl: p.recordingUrl }),
+        ...(p.durationSec !== undefined && { durationSec: p.durationSec }),
+        ...(p.platformCostMinor !== undefined && { platformCostMinor: p.platformCostMinor }),
+      }),
+      signal: ac.signal,
+    });
+    if (!res.ok) logger.warn({ callId: p.callId, status: res.status }, 'recording-cost POST başarısız');
+  } catch (err) {
+    logger.warn({ callId: p.callId, err }, 'recording-cost POST hatası');
   } finally {
     clearTimeout(timer);
   }

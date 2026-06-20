@@ -17,10 +17,13 @@ import type { CallOutcome, ConversationState, Debtor, LLMIntent } from '@voice/s
  * optional (`T?`) kullanır. `exactOptionalPropertyTypes:true` altında ikisi uyuşmaz,
  * bu yüzden burada Zod'a tolerant local tip kullanıyoruz.
  */
+type PaymentMethod = 'BANK_TRANSFER' | 'CASH' | 'CARD' | 'INSTALLMENT';
+
 type LooseFields = {
   amount?: number | undefined;
   date?: string | undefined;
   reason?: string | undefined;
+  paymentMethod?: PaymentMethod | undefined;
 };
 
 // --- Konuşma boyunca biriken bağlam ----------------------------------------
@@ -32,14 +35,16 @@ interface CollectionsContext {
   identityVerified: boolean;
   attemptCount: number;
   disputeReason: string | null;
+  /** Müşterinin belirttiği ödeme yöntemi (WILL_PAY/PARTIAL_OR_PLAN turunda çıkarılır). */
+  paymentMethod: PaymentMethod | null;
 }
 
 // --- LLM'in üretebileceği INTENT'ler (durum geçiş olayları) ------------------
 export type CollectionsEvent =
   | { type: 'IDENTITY_CONFIRMED' }
   | { type: 'WRONG_PERSON' }
-  | { type: 'WILL_PAY'; amount?: number; date?: string }
-  | { type: 'PARTIAL_OR_PLAN'; amount?: number; date?: string }
+  | { type: 'WILL_PAY'; amount?: number; date?: string; paymentMethod?: PaymentMethod }
+  | { type: 'PARTIAL_OR_PLAN'; amount?: number; date?: string; paymentMethod?: PaymentMethod }
   | { type: 'DISPUTES_DEBT'; reason?: string }
   | { type: 'REFUSES' }
   | { type: 'ASKS_CALLBACK'; callbackAt?: string }
@@ -59,11 +64,13 @@ export function createCollectionsMachine(debtor: Debtor) {
     },
     actions: {
       verifyIdentity: assign({ identityVerified: true }),
-      recordPromise: assign(({ event }) => {
+      recordPromise: assign(({ context, event }) => {
         if (event.type === 'WILL_PAY' || event.type === 'PARTIAL_OR_PLAN') {
           return {
             promisedAmount: event.amount ?? null,
             promisedDate: event.date ?? null,
+            // Yöntem yalnızca verildiyse güncelle; sonraki turda boş gelirse öncekini koru.
+            paymentMethod: event.paymentMethod ?? context.paymentMethod,
           };
         }
         return {};
@@ -90,6 +97,7 @@ export function createCollectionsMachine(debtor: Debtor) {
       identityVerified: false,
       attemptCount: 0,
       disputeReason: null,
+      paymentMethod: null,
     },
     states: {
       // --- 1. SELAM + KAYIT RIZASI -------------------------------------------
@@ -245,12 +253,14 @@ export function eventFromIntent(
         type: 'WILL_PAY',
         ...(fields?.amount !== undefined && { amount: fields.amount }),
         ...(fields?.date !== undefined && { date: fields.date }),
+        ...(fields?.paymentMethod !== undefined && { paymentMethod: fields.paymentMethod }),
       };
     case 'PARTIAL_OR_PLAN':
       return {
         type: 'PARTIAL_OR_PLAN',
         ...(fields?.amount !== undefined && { amount: fields.amount }),
         ...(fields?.date !== undefined && { date: fields.date }),
+        ...(fields?.paymentMethod !== undefined && { paymentMethod: fields.paymentMethod }),
       };
     case 'DISPUTES_DEBT':
       return {

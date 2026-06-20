@@ -60,7 +60,7 @@ export async function startPlatformCall(deps: {
         ...(decision.outcome !== undefined && { outcome: decision.outcome }),
       };
     },
-    onEnd: ({ reason, outcome }) => {
+    onEnd: ({ reason, outcome, platformCostTRY, recordingUrl }) => {
       const summary = telemetry.finalize();
       const finalOutcome = outcome ?? turn.outcome ?? 'NO_ANSWER';
       logger.info(
@@ -80,6 +80,11 @@ export async function startPlatformCall(deps: {
         ...(turn.promisedAmount !== undefined && { promisedAmount: turn.promisedAmount }),
         ...(turn.promisedDate !== undefined && { promisedDate: turn.promisedDate }),
         ...(turn.disputeReason !== undefined && { disputeReason: turn.disputeReason }),
+        ...(turn.paymentMethod !== undefined && { paymentMethod: turn.paymentMethod }),
+        // Faz 1: platform maliyet raporladıysa finalize'a taşı (STT/TTS telemetri'de yok).
+        ...(platformCostTRY !== undefined && { platformCostTRY }),
+        // Kayıt URL'si platformdan gelir; persist.ts rıza yoksa KVKK gereği süzer.
+        ...(recordingUrl !== undefined && { recordingUrl }),
         summary,
         transcript: turn.transcript,
       });

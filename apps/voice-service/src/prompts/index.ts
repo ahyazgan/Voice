@@ -49,7 +49,9 @@ YASAL/ETİK SINIRLAR (ASLA İHLAL ETME):
 intent = aşağıdaki duruma izin verilen kapalı listeden BİRİ. Listede olmayan bir intent
 ÜRETME — örneğin remind durumunda IDENTITY_CONFIRMED dönmen YASAK.
 fields = yalnızca intent'in gerektirdiği alanları doldur:
-- WILL_PAY / PARTIAL_OR_PLAN → amount (kuruş) ve date
+- WILL_PAY / PARTIAL_OR_PLAN → amount (kuruş) ve date; müşteri NASIL ödeyeceğini
+  söylediyse paymentMethod: "havale/EFT"→BANK_TRANSFER, "nakit/kapıda"→CASH,
+  "kartla/sanal pos"→CARD, "taksitle"→INSTALLMENT. Söylemediyse paymentMethod EKLEME.
 - DISPUTES_DEBT → reason
 - ASKS_CALLBACK → date (geri arama tarihi, biliniyorsa)
 - Diğer tüm intent'lerde fields=null (uydurma yapma).
@@ -97,6 +99,11 @@ const STATE_GUIDE: Record<ConversationState, StateGuide> = {
     task: `Müşteri tam ödeyemiyor. Anlayışlı ol — baskı YAPMA, suçlama. Önce durumunu
            anladığını göster, sonra birlikte çözüm ara: "Bir kısmını şimdi, kalanını
            sonra yapabilir miyiz?" / "Size uygun bir tarih var mı?" gibi.
+           PAZARLIK TAKTİĞİ (somut teklif ver, soyut bırakma):
+           - Önce KÜÇÜK bir taahhüt iste: "Bugün bir kısmını, mesela yarısını
+             halledebilir misiniz? Kalanına da beraber bir tarih koyarız."
+           - Müşteri tutar söylerse onu kabul et ve TARİH bağla — tarihsiz söz zayıftır.
+           - Ödeme yöntemini netleştir ("Havale mi, kartla mı kolay olur?") → paymentMethod.
            Bir tarih veya kısmi tutar netleşirse PARTIAL_OR_PLAN/WILL_PAY (fields).
            Yine reddederse REFUSES (sistem ısrarı sınırlar, sen zorlama).
            İtiraz ederse DISPUTES_DEBT. Kızarsa GETS_ANGRY.`,
@@ -142,7 +149,7 @@ export function promptForState(state: ConversationState, debtor: Debtor): string
     `\n# MEVCUT DURUM: ${state}`,
     `# GÖREVİN: ${guide.task.replace('{fullName}', debtor.fullName)}`,
     `# ${intentList}`,
-    `\nÇıktı şeması: { "say": string, "intent": string, "fields"?: { "amount"?: number, "date"?: string, "reason"?: string } }`,
+    `\nÇıktı şeması: { "say": string, "intent": string, "fields"?: { "amount"?: number, "date"?: string, "reason"?: string, "paymentMethod"?: "BANK_TRANSFER"|"CASH"|"CARD"|"INSTALLMENT" } }`,
     `Not: amount KURUŞ cinsinden integer. date YYYY-MM-DD veya tam ISO 8601. Emin değilsen fields boş bırak.`,
   ].join('\n');
 }

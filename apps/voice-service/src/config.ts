@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { timingSafeEqual } from 'node:crypto';
 import type { CostRates } from './telemetry.js';
 
 const EnvSchema = z.object({
@@ -43,6 +44,11 @@ const EnvSchema = z.object({
   // RETELL_FROM_NUMBER: Retell'e tanımlı giden arama numarası (TR yerel olmalı; bkz. telnyx notu).
   RETELL_AGENT_ID: z.string().optional(),
   RETELL_FROM_NUMBER: z.string().optional(),
+  // Retell event webhook (call_ended vb.) imza doğrulaması için API key.
+  // Retell panelinde "webhook badge"li key; verilmezse RETELL_API_KEY'e düşer.
+  // Tanımlıysa /retell-webhook imzasız/geçersiz POST'u reddeder.
+  RETELL_API_KEY: z.string().optional(),
+  RETELL_WEBHOOK_API_KEY: z.string().optional(),
 
   // Vapi (ORCHESTRATION_PROVIDER=vapi ise VAPI_API_KEY + assistant + numara zorunlu).
   // Vapi Custom-LLM modunda assistant, model.url'i bizim /vapi-llm/{callId}/chat/
@@ -77,6 +83,18 @@ const EnvSchema = z.object({
   // API tarafındaki INTERNAL_API_SECRET ile AYNI olmalı.
   INTERNAL_API_SECRET: z.string().optional(),
 
+  // --- Auth (üretimde ZORUNLU; bkz. assertProductionSafe) ---
+  // `/control` WS'ine "arama başlat" frame'i atan worker'ın paylaşması gereken sır.
+  // Boş bırakılırsa control WS herkese açık olur → ağdan erişen herkes arama
+  // başlatabilir (yanlış kişiyi arama / maliyet saldırısı). Worker (apps/api)
+  // CONTROL_AUTH_SECRET ile AYNI değeri taşır. Varsayılan: INTERNAL_API_SECRET'a düşer.
+  CONTROL_AUTH_SECRET: z.string().optional(),
+  // Vapi Custom-LLM POST'larını doğrulamak için Vapi'nin "Server Secret"ı.
+  // Vapi her isteğe `x-vapi-secret` header'ı ekler; bununla karşılaştırılır.
+  // Boşsa Vapi POST'ları doğrulanmaz (sahte tur enjeksiyonu riski).
+  VAPI_SECRET: z.string().optional(),
+  NODE_ENV: z.string().optional(),
+
   // --- Maliyet fiyatları (TRY/birim) ---
   // Hepsi 0 ise telemetri totalTRY=0 döner. Gerçek değerleri sağlayıcı faturalarından doldur.
   COST_TELEPHONY_PER_MIN_TRY: z.coerce.number().nonnegative().default(0),
@@ -104,4 +122,69 @@ export function getCostRates(): CostRates | undefined {
   };
   const anySet = Object.values(rates).some((v) => v > 0);
   return anySet ? rates : undefined;
+}
+
+/** `/control` WS'ini koruyan sır. CONTROL_AUTH_SECRET öncelikli, yoksa INTERNAL_API_SECRET. */
+export function controlAuthSecret(): string | undefined {
+  return env.CONTROL_AUTH_SECRET ?? env.INTERNAL_API_SECRET;
+}
+
+/** Retell webhook imzasını doğrulayan key. Webhook-badge'li key öncelikli. */
+export function retellWebhookKey(): string | undefined {
+  return env.RETELL_WEBHOOK_API_KEY ?? env.RETELL_API_KEY;
+}
+
+/**
+ * İki sırrı sabit-zamanlı karşılaştırır (zamanlama sızıntısı yok). Uzunluk farkı
+ * da güvenli ele alınır. Biri boş/undefined ise false.
+ */
+export function secretsMatch(provided: string | undefined, expected: string | undefined): boolean {
+  if (!provided || !expected) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Üretimde (NODE_ENV=production) tehlikeli varsayılanları reddet. Sessizce mock'a
+ * düşüp gerçek müşterileri arama / kimliksiz endpoint açma / İngilizce sesle
+ * Türkçe konuşma gibi felaketleri başlamadan durdurur. Dev/test'te no-op.
+ */
+export function assertProductionSafe(): void {
+  if (env.NODE_ENV !== 'production') return;
+  const errs: string[] = [];
+
+  if (env.VOICE_MODE === 'platform') {
+    if (env.ORCHESTRATION_PROVIDER === 'mock')
+      errs.push('ORCHESTRATION_PROVIDER=mock üretimde olamaz (retell/vapi seç).');
+  } else {
+    for (const [k, v] of [
+      ['TELEPHONY_PROVIDER', env.TELEPHONY_PROVIDER],
+      ['STT_PROVIDER', env.STT_PROVIDER],
+      ['TTS_PROVIDER', env.TTS_PROVIDER],
+    ] as const) {
+      if (v === 'mock') errs.push(`${k}=mock üretimde olamaz (cascade modu gerçek sağlayıcı ister).`);
+    }
+  }
+  if (env.LLM_PROVIDER === 'mock')
+    errs.push('LLM_PROVIDER=mock üretimde olamaz (openai vb. seç).');
+
+  // Türkçe TTS doğallığı ürünün farklılaştırıcısı: İngilizce default sesi reddet.
+  if (env.TTS_PROVIDER === 'elevenlabs' && env.ELEVENLABS_VOICE_ID === '21m00Tcm4TlvDq8ikWAM')
+    errs.push('ELEVENLABS_VOICE_ID hâlâ Rachel (İngilizce); Türkçe-native bir ses seç.');
+
+  // Auth: control WS ve finalize endpoint'i kimliksiz kalmamalı.
+  if (!controlAuthSecret())
+    errs.push('CONTROL_AUTH_SECRET (veya INTERNAL_API_SECRET) boş; /control WS kimliksiz.');
+  if (!env.INTERNAL_API_SECRET)
+    errs.push('INTERNAL_API_SECRET boş; finalize endpoint\'i kimliksiz.');
+  if (env.ORCHESTRATION_PROVIDER === 'vapi' && !env.VAPI_SECRET)
+    errs.push('VAPI_SECRET boş; Vapi Custom-LLM POST\'ları doğrulanamaz.');
+
+  if (errs.length) {
+    throw new Error(
+      `Üretim güvenlik kontrolü başarısız (NODE_ENV=production):\n  - ${errs.join('\n  - ')}`,
+    );
+  }
 }

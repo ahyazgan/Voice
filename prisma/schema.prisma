@@ -10,7 +10,9 @@ datasource db {
 model Debtor {
   id         String   @id @default(cuid())
   fullName   String
-  phoneE164  String
+  // Bir borçlu = bir telefon. CSV çift yüklemesi aynı kişiyi iki kez girmesin;
+  // "bugün arandı mı" taciz sorgusu da bu benzersizlikten yararlanır.
+  phoneE164  String   @unique
   amountDue  Int
   currency   String   @default("TRY")
   dueDate    DateTime
@@ -19,10 +21,65 @@ model Debtor {
   timezone   String   @default("Europe/Istanbul")
   // Kalıcı opt-out: WRONG_NUMBER sonrası veya manuel "beni arama" → asla aranmaz.
   doNotCall  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
 
-  calls Call[]
+  // --- Tahsilat profili (pazarlık stratejisi + segment raporları) ---
+  // Borçlunun segmenti; prompt/pazarlık taktiği ve KPI kırılımı bununla ayrışır.
+  // Boş (UNKNOWN) ise jenerik taktik kullanılır.
+  profile DebtorProfile @default(UNKNOWN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  calls    Call[]
+  payments Payment[]
+}
+
+// Borçlu segmenti — pazarlık taktiği ve raporlama kırılımı için.
+enum DebtorProfile {
+  UNKNOWN
+  INDIVIDUAL // birey/tüketici
+  SME // esnaf/KOBİ
+  CORPORATE // kurumsal
+}
+
+// Ödeme yöntemi — söz/teyit sırasında çıkarılır, takip aramasının metnini belirler.
+enum PaymentMethod {
+  UNKNOWN
+  BANK_TRANSFER // EFT/havale
+  CASH // nakit/kapıda
+  CARD // kart/sanal pos
+  INSTALLMENT // taksit planı
+}
+
+enum PaymentStatus {
+  PROMISED // söz verildi, henüz gelmedi
+  RECEIVED // tahsil edildi (sonuç-bazlı faturalandırmanın temeli)
+  PARTIAL // kısmi ödeme geldi
+  BROKEN // söz tarihi geçti, ödeme gelmedi
+}
+
+// Ödeme sözü ve gerçekleşmesi. Bir aramada söz alınır (PROMISED); banka/POS
+// doğrulaması ya da manuel işaretleme RECEIVED/PARTIAL/BROKEN'a taşır. costTRY
+// ile birlikte sonuç-bazlı fiyatlandırma (tahsil edilenin %'si) bu tablodan çıkar.
+model Payment {
+  id           String        @id @default(cuid())
+  debtorId     String
+  // Sözü alan arama (varsa). Takip araması farklı Call olabilir.
+  callId       String?
+  amount       Int // kuruş
+  currency     String        @default("TRY")
+  method       PaymentMethod @default(UNKNOWN)
+  status       PaymentStatus @default(PROMISED)
+  promisedDate DateTime?
+  receivedDate DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  debtor Debtor @relation(fields: [debtorId], references: [id], onDelete: Cascade)
+  call   Call?  @relation(fields: [callId], references: [id], onDelete: SetNull)
+
+  @@index([debtorId, status])
+  @@index([status, promisedDate]) // vadesi geçen sözleri (BROKEN adayı) taramak için
 }
 
 enum CampaignStatus {
@@ -48,7 +105,7 @@ enum CallStatus {
   FAILED
   SCHEDULED // pencere dışı/retry: delayed job olarak beklemede
   CANCELLED // kampanya iptali ile düşürüldü
-  SKIPPED   // KVKK/doNotCall nedeniyle hiç aranmadı
+  SKIPPED // KVKK/doNotCall nedeniyle hiç aranmadı
 }
 
 enum CallOutcome {
@@ -62,22 +119,22 @@ enum CallOutcome {
 }
 
 model Call {
-  id          String       @id @default(cuid())
-  campaignId  String
-  debtorId    String
-  status      CallStatus   @default(QUEUED)
-  attempt     Int          @default(1)
+  id           String       @id @default(cuid())
+  campaignId   String
+  debtorId     String
+  status       CallStatus   @default(QUEUED)
+  attempt      Int          @default(1)
   // Pencere/retry için planlanan zaman (gözlemlenebilirlik; delayed job ile eşlenir).
   scheduledFor DateTime?
   // Outcome denormu: retry kararını CallResult join'i olmadan sorgulamak için.
   // Kaynağı CallResult.outcome; finalize anında yazılır.
-  outcome     CallOutcome?
+  outcome      CallOutcome?
   // Outcome-bazlı takip/tekrar aramaları bu zincirle izlenir (idempotency + raporlama).
   parentCallId String?
-  startedAt   DateTime?
-  endedAt     DateTime?
-  durationSec Int?
-  createdAt   DateTime     @default(now())
+  startedAt    DateTime?
+  endedAt      DateTime?
+  durationSec  Int?
+  createdAt    DateTime     @default(now())
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   debtor   Debtor   @relation(fields: [debtorId], references: [id], onDelete: Restrict)
@@ -87,32 +144,38 @@ model Call {
 
   result     CallResult?
   transcript TranscriptTurn[]
+  payments   Payment[]
 
   // KVKK taciz sayımı + retry sorguları bu indeksten yararlanır.
   @@index([debtorId, createdAt])
   @@index([campaignId, status])
+  // Kampanya ROI/outcome kırılımı raporları (COMPLETED + outcome) için.
+  @@index([campaignId, outcome])
 }
 
 model CallResult {
-  callId          String      @id
-  outcome         CallOutcome
-  promisedAmount  Int?
-  promisedDate    DateTime?
-  disputeReason   String?
-  recordingUrl    String?
+  callId         String      @id
+  outcome        CallOutcome
+  promisedAmount Int?
+  promisedDate   DateTime?
+  disputeReason  String?
+  recordingUrl   String?
+  // KVKK: müşteri kayıt rızası verdi mi. Retell webhook'u kayıt URL'sini ASYNC
+  // gönderdiğinde, recording-cost route'u recordingUrl'i yalnızca bu true ise yazar.
+  recordingConsent Boolean @default(false)
 
   // Maliyet
-  costTRY         Int         @default(0)
-  llmTokensIn     Int         @default(0)
-  llmTokensOut   Int         @default(0)
-  ttsChars        Int         @default(0)
-  sttSec          Int         @default(0)
-  telephonySec    Int         @default(0)
+  costTRY      Int @default(0)
+  llmTokensIn  Int @default(0)
+  llmTokensOut Int @default(0)
+  ttsChars     Int @default(0)
+  sttSec       Int @default(0)
+  telephonySec Int @default(0)
 
   // Kalite metrikleri (telemetry.finalize'dan)
-  avgResponseMs   Int?
-  p95ResponseMs   Int?
-  bargeIns        Int         @default(0)
+  avgResponseMs Int?
+  p95ResponseMs Int?
+  bargeIns      Int  @default(0)
 
   call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
 }

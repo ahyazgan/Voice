@@ -31,15 +31,44 @@ export interface TurnDecision {
  *
  * Geri dönüş hep yapılandırılmış: serbest LLM cevabı YASAK.
  */
+/**
+ * Art arda kaç LLM parse hatasından sonra aramayı güvenli kapatırız. Tek seferlik
+ * bozuk çıktı normaldir (state'te kalıp tekrar sorarız); ama LLM üst üste geçersiz
+ * üretiyorsa müşteri aynı turda SONSUZA DEK sıkışır — bu eşikte escalate edip kapat.
+ */
+const MAX_CONSECUTIVE_PARSE_FAILURES = 3;
+
 export class TurnHandler {
   private actor: ConversationActor;
   private history: TranscriptTurn[] = [];
+  /** Art arda LLM parse hatası sayacı; başarılı turda sıfırlanır. */
+  private consecutiveParseFailures = 0;
 
   constructor(
     private readonly callContext: CallContext,
     private readonly llm: ILLMProvider,
   ) {
     this.actor = startConversation(callContext.debtor);
+  }
+
+  /**
+   * Parse hatası ortak ele alımı. Sayaç eşiği aşılırsa aramayı güvenli sonlandırır
+   * (shouldHangup + ESCALATED_TO_HUMAN) — sonsuz döngü engellenir. Eşiğin altında
+   * eski davranış: state'te kal, kısaca tekrar sor (shouldHangup=false).
+   */
+  private handleParseFailure(state: ConversationState, fallbackReply: string): TurnDecision {
+    this.consecutiveParseFailures += 1;
+    if (this.consecutiveParseFailures >= MAX_CONSECUTIVE_PARSE_FAILURES) {
+      logger.error(
+        { callId: this.callContext.callId, failures: this.consecutiveParseFailures },
+        'llm art arda parse hatası eşiği aşıldı; arama güvenli kapatılıyor',
+      );
+      const reply = 'Sizi şu an net anlayamıyorum, bir yetkilimiz sizinle tekrar görüşecek. İyi günler.';
+      this.recordAgentUtterance(reply);
+      return { reply, shouldHangup: true, outcome: 'ESCALATED_TO_HUMAN', state };
+    }
+    this.recordAgentUtterance(fallbackReply);
+    return { reply: fallbackReply, shouldHangup: false, state };
   }
 
   get transcript(): readonly TranscriptTurn[] {
@@ -63,6 +92,11 @@ export class TurnHandler {
   /** Borca itiraz gerekçesi (DISPUTE outcome'unda). */
   get disputeReason(): string | undefined {
     return this.actor.getSnapshot().context.disputeReason ?? undefined;
+  }
+
+  /** Müşterinin belirttiği ödeme yöntemi (varsa) — Payment.method'a taşınır. */
+  get paymentMethod(): 'BANK_TRANSFER' | 'CASH' | 'CARD' | 'INSTALLMENT' | undefined {
+    return this.actor.getSnapshot().context.paymentMethod ?? undefined;
   }
 
   get state(): ConversationState {
@@ -104,10 +138,11 @@ export class TurnHandler {
     const parsed = LLMStructuredOutputSchema.safeParse(raw);
     if (!parsed.success) {
       logger.warn({ issues: parsed.error.issues, callId: this.callContext.callId }, 'llm stream output invalid');
-      const reply = sentences.join(' ') || 'Sizi tam anlayamadım, tekrar eder misiniz?';
-      this.recordAgentUtterance(reply);
-      return { reply, shouldHangup: false, state };
+      // Stream'de zaten cümle yield edildiyse onu reply yap; yoksa kısa tekrar isteği.
+      const fallback = sentences.join(' ') || 'Sizi tam anlayamadım, tekrar eder misiniz?';
+      return this.handleParseFailure(state, fallback);
     }
+    this.consecutiveParseFailures = 0;
 
     const { say, intent, fields } = parsed.data;
     const event = eventFromIntent(intent, fields);
@@ -157,10 +192,9 @@ export class TurnHandler {
         { issues: parsed.error.issues, callId: this.callContext.callId },
         'llm output invalid',
       );
-      const reply = 'Sizi tam anlayamadım, kısaca tekrar eder misiniz?';
-      this.recordAgentUtterance(reply);
-      return { reply, shouldHangup: false, state };
+      return this.handleParseFailure(state, 'Sizi tam anlayamadım, kısaca tekrar eder misiniz?');
     }
+    this.consecutiveParseFailures = 0;
 
     const { say, intent, fields } = parsed.data;
     const event = eventFromIntent(intent, fields);

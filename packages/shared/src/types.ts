@@ -95,6 +95,8 @@ export interface LLMStructuredOutput {
     amount?: number;   // kuruş (float YOK)
     date?: string;     // YYYY-MM-DD veya tam ISO
     reason?: string;
+    /** Müşterinin belirttiği ödeme yöntemi (varsa). Payment.method + takip metni. */
+    paymentMethod?: 'BANK_TRANSFER' | 'CASH' | 'CARD' | 'INSTALLMENT';
   };
   /**
    * Token kullanımı (maliyet telemetrisi için). Şemanın parçası DEĞİL — provider
