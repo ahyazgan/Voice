@@ -17,7 +17,9 @@ export async function debtorsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/debtors', async (req, reply) => {
     const body = CreateDebtorSchema.parse(req.body);
-    const debtor = await prisma.debtor.create({ data: { ...body, currency: 'TRY' } });
+    const debtor = await prisma.debtor.create({
+      data: { ...body, invoiceRef: body.invoiceRef ?? null, currency: 'TRY' },
+    });
     reply.code(201);
     return debtor;
   });
@@ -28,7 +30,7 @@ export async function debtorsRoutes(app: FastifyInstance): Promise<void> {
   app.post('/debtors/bulk', async (req, reply) => {
     const { rows } = BulkSchema.parse(req.body);
     const result = await prisma.debtor.createMany({
-      data: rows.map((r) => ({ ...r, currency: 'TRY' })),
+      data: rows.map((r) => ({ ...r, invoiceRef: r.invoiceRef ?? null, currency: 'TRY' })),
     });
     reply.code(201);
     return { inserted: result.count };

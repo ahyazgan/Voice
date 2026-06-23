@@ -5,6 +5,7 @@ import { env } from './config.js';
 import { debtorsRoutes } from './routes/debtors.js';
 import { campaignsRoutes } from './routes/campaigns.js';
 import { callsRoutes } from './routes/calls.js';
+import { statsRoutes } from './routes/stats.js';
 import { authRoutes } from './routes/auth.js';
 import { createCallWorker } from './queue/index.js';
 import { processCallJob } from './worker/processor.js';
@@ -38,6 +39,7 @@ app.addHook('preHandler', async (req, reply) => {
 await app.register(debtorsRoutes, { prefix: '/api' });
 await app.register(campaignsRoutes, { prefix: '/api' });
 await app.register(callsRoutes, { prefix: '/api' });
+await app.register(statsRoutes, { prefix: '/api' });
 await app.register(authRoutes, { prefix: '/api' });
 
 // BullMQ worker: kuyruktaki aramaları voice-service'e WS ile tetikler.

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { NavLink, Route, Routes, Navigate, useNavigate } from 'react-router-dom';
 import { apiFetch, auth } from './lib/api.js';
+import { DashboardPage } from './pages/DashboardPage.js';
 import { DebtorsListPage } from './pages/DebtorsListPage.js';
 import { DebtorsUploadPage } from './pages/DebtorsUploadPage.js';
 import { CampaignsListPage } from './pages/CampaignsListPage.js';
@@ -38,7 +39,7 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<Navigate to="/calls" replace />} />
+      <Route path="/login" element={<Navigate to="/dashboard" replace />} />
       <Route
         path="*"
         element={
@@ -46,6 +47,7 @@ export function App() {
             <aside className="sidebar">
               <h1>Tahsilat Paneli</h1>
               <nav>
+                <NavLink to="/dashboard">Genel Bakış</NavLink>
                 <NavLink to="/debtors">Borçlular</NavLink>
                 <NavLink to="/campaigns">Kampanyalar</NavLink>
                 <NavLink to="/calls">Aramalar</NavLink>
@@ -62,7 +64,8 @@ export function App() {
             </aside>
             <main className="content">
               <Routes>
-                <Route path="/" element={<Navigate to="/calls" replace />} />
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/debtors" element={<DebtorsListPage />} />
                 <Route path="/debtors/upload" element={<DebtorsUploadPage />} />
                 <Route path="/campaigns" element={<CampaignsListPage />} />
