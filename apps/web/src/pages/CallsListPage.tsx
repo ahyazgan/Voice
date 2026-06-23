@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, apiDownload } from '../lib/api.js';
 import { formatKurus, formatDateTime } from '../lib/format.js';
 import { Spinner, ErrorState, EmptyState, StatusBadge, OutcomeBadge } from '../components/ui.js';
 import type { CallListItem, CallStatus } from '../types.js';
@@ -48,16 +48,25 @@ export function CallsListPage() {
       <h2 className="page-title">Aramalar</h2>
       <p className="page-sub">Sonuçları ve durumları izle.{campaignId && ' (kampanya filtreli)'}</p>
 
-      <div className="row" style={{ marginBottom: 16 }}>
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.value}
-            className={`btn sm ${status === f.value ? '' : 'ghost'}`}
-            onClick={() => setStatus(f.value)}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="spread" style={{ marginBottom: 16 }}>
+        <div className="row">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              className={`btn sm ${status === f.value ? '' : 'ghost'}`}
+              onClick={() => setStatus(f.value)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <button
+          className="btn ghost sm"
+          disabled={!data || data.length === 0}
+          onClick={() => void apiDownload(`/calls/export.csv${query ? `?${query}` : ''}`, 'aramalar.csv')}
+        >
+          CSV indir
+        </button>
       </div>
 
       {isLoading && <Spinner />}
