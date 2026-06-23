@@ -75,8 +75,10 @@ const STATE_GUIDE: Record<ConversationState, StateGuide> = {
   identify: {
     task: `Kimliği teyit etmeye devam et. Doğru kişiyse IDENTITY_CONFIRMED.
            "Ben değilim / yanlış numara" derse WRONG_PERSON. "Şimdi müsait değilim,
-           sonra arayın" derse ASKS_CALLBACK. Sinirlenirse GETS_ANGRY.`,
-    intents: ['IDENTITY_CONFIRMED', 'WRONG_PERSON', 'ASKS_CALLBACK', 'GETS_ANGRY', 'NO_RESPONSE'],
+           sonra arayın" derse ASKS_CALLBACK. Sinirlenirse GETS_ANGRY.
+           "Kaydedilmesini istemiyorum / kayda izin vermiyorum" derse CONSENT_DECLINED
+           (kibarca "tabii, kaydı kapatıyorum" de ve görüşmeye devam et).`,
+    intents: ['IDENTITY_CONFIRMED', 'WRONG_PERSON', 'ASKS_CALLBACK', 'CONSENT_DECLINED', 'GETS_ANGRY', 'NO_RESPONSE'],
   },
   remind: {
     task: `Artık kimlik doğru. Tutarı ve vadeyi NAZİKÇE, doğal bir dille hatırlat;
@@ -160,7 +162,8 @@ export const systemPromptFor = (state: ConversationState, ctx: { debtor: Debtor 
 // İsimli tanıtım + sade rıza ifadesi. (Sabit metin — TTS normalizasyonundan geçer.)
 export const CONSENT_ANNOUNCEMENT =
   `Merhaba, ben ${env.AGENT_NAME}, ${env.COMPANY_NAME} adına arıyorum. ` +
-  `Başlamadan belirteyim, görüşmemiz kalite amacıyla kaydedilebiliyor. Müsaitseniz devam edelim.`;
+  `Başlamadan belirteyim, görüşmemiz kalite amacıyla kaydedilebiliyor; ` +
+  `kaydedilmesini istemezseniz çekinmeden söyleyin, kapatırız. Müsaitseniz devam edelim.`;
 
 // --- Yardımcılar -------------------------------------------------------------
 function formatTRY(kurus: number): string {

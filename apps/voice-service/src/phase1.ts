@@ -76,7 +76,8 @@ export async function startPlatformCall(deps: {
       void postFinalize({
         callId: deps.callContext.callId,
         outcome: finalOutcome,
-        consentToRecord: deps.callContext.consentToRecord,
+        // KVKK: sözlü kayıt reddi platform/operatör bayrağını GEÇERSİZ kılar.
+        consentToRecord: deps.callContext.consentToRecord && turn.recordingConsent !== false,
         ...(turn.promisedAmount !== undefined && { promisedAmount: turn.promisedAmount }),
         ...(turn.promisedDate !== undefined && { promisedDate: turn.promisedDate }),
         ...(turn.callbackAt !== undefined && { callbackAt: turn.callbackAt }),
