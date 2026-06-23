@@ -78,3 +78,20 @@ export interface Campaign {
   createdAt: string;
   _count?: { calls: number };
 }
+
+export interface Stats {
+  totals: { calls: number; completed: number; failed: number; reached: number };
+  rates: { reachRate: number | null; promiseRate: number | null };
+  outcomes: Record<CallOutcome, number>;
+  promise: { count: number; totalAmount: number }; // totalAmount: kuruş
+  cost: {
+    totalTRY: number; // kuruş
+    perCallTRY: number | null; // kuruş
+    perPromiseTRY: number | null; // kuruş
+  };
+  quality: {
+    avgDurationSec: number | null;
+    avgResponseMs: number | null;
+    p95ResponseMs: number | null;
+  };
+}

@@ -26,6 +26,12 @@ export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Oran (0..1) → "%73". null ise "—". */
+export function formatPercent(ratio: number | null | undefined): string {
+  if (ratio == null) return '—';
+  return `%${Math.round(ratio * 100)}`;
+}
+
 export function formatDuration(sec: number | null | undefined): string {
   if (sec == null) return '—';
   const m = Math.floor(sec / 60);

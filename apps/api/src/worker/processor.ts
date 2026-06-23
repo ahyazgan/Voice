@@ -69,7 +69,7 @@ export async function processCallJob(data: CallJobData): Promise<void> {
         amountDue: call.debtor.amountDue,
         currency: 'TRY' as const,
         dueDate: call.debtor.dueDate.toISOString(),
-        invoiceRef: call.debtor.invoiceRef ?? undefined,
+        ...(call.debtor.invoiceRef != null ? { invoiceRef: call.debtor.invoiceRef } : {}),
       },
     });
   } catch (err) {
