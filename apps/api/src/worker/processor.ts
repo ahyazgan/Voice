@@ -3,6 +3,7 @@ import { prisma } from '../db/index.js';
 import { env } from '../config.js';
 import type { CallJobData } from '../queue/index.js';
 import { isCallableNow, scheduleCall } from '../scheduling/scheduler.js';
+import { claimCallSlot } from '../scheduling/harassmentGuard.js';
 
 /**
  * BullMQ job processor — kuyruktan bir aramayı alıp voice-service'i tetikler.
@@ -54,10 +55,14 @@ export async function processCallJob(data: CallJobData): Promise<void> {
     return;
   }
 
-  await prisma.call.update({
-    where: { id: call.id },
-    data: { status: 'RUNNING', startedAt: new Date(), attempt: data.attempt },
-  });
+  // KVKK taciz kapısı (ATOMİK): say + RUNNING'e geçişi per-borçlu advisory lock
+  // altında yapar. Eşzamanlı bir job aynı borçlunun slotunu çoktan kullandıysa
+  // (limit doldu) bu aramayı YAPMA — çift arama = taciz. SKIPPED'e çek, dön.
+  const claim = await claimCallSlot(call.id, call.debtorId, call.debtor.timezone, data.attempt);
+  if (!claim.claimed) {
+    await prisma.call.update({ where: { id: call.id }, data: { status: 'SKIPPED' } });
+    return;
+  }
 
   try {
     await runVoiceCall({
