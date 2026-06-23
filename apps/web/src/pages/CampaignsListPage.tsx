@@ -35,7 +35,10 @@ export function CampaignsListPage() {
       {data && data.length > 0 && (
         <table className="table">
           <thead>
-            <tr><th>Ad</th><th>Durum</th><th>Arama</th><th>Oluşturma</th><th></th></tr>
+            <tr>
+              <th>Ad</th><th>Durum</th><th>Arama</th><th>Ulaşılan</th><th>Ödeme sözü</th>
+              <th>Oluşturma</th><th></th>
+            </tr>
           </thead>
           <tbody>
             {data.map((c) => (
@@ -43,6 +46,8 @@ export function CampaignsListPage() {
                 <td>{c.name}</td>
                 <td><CampaignBadge status={c.status} /></td>
                 <td className="num">{c._count?.calls ?? 0}</td>
+                <td className="num">{c.metrics?.reached ?? 0}</td>
+                <td className="num">{c.metrics?.promises ?? 0}</td>
                 <td>{formatDateTime(c.createdAt)}</td>
                 <td>
                   <div className="row" style={{ gap: 6 }}>

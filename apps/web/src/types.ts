@@ -77,6 +77,7 @@ export interface Campaign {
   status: CampaignStatus;
   createdAt: string;
   _count?: { calls: number };
+  metrics?: { reached: number; promises: number };
 }
 
 export interface Stats {
