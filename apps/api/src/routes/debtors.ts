@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db/index.js';
+import { eraseDebtorData } from '../retention/retention.js';
 
 const CreateDebtorSchema = z.object({
   fullName: z.string().min(1),
@@ -34,5 +35,19 @@ export async function debtorsRoutes(app: FastifyInstance): Promise<void> {
     });
     reply.code(201);
     return { inserted: result.count };
+  });
+
+  // KVKK right-to-erasure: borçlunun ses kaydı + transkriptini siler ve
+  // doNotCall=true yapar. CallResult (outcome/maliyet) raporlama için korunur.
+  app.post('/debtors/:id/erase', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const debtor = await prisma.debtor.findUnique({ where: { id }, select: { id: true } });
+    if (!debtor) {
+      reply.code(404);
+      return { error: 'not_found' };
+    }
+    const result = await eraseDebtorData(id);
+    req.log.info({ debtorId: id, ...result }, 'debtor data erased (KVKK)');
+    return { ok: true, ...result };
   });
 }

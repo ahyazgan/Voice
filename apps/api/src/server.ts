@@ -11,6 +11,7 @@ import { createCallWorker } from './queue/index.js';
 import { processCallJob } from './worker/processor.js';
 import { verifyToken } from './auth/token.js';
 import { bearer } from './routes/auth.js';
+import { runRetention } from './retention/retention.js';
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });
 
@@ -52,12 +53,27 @@ worker.on('failed', (job, err) => {
   app.log.warn({ jobId: job?.id, err: err.message }, 'call job failed');
 });
 
+// KVKK retention tarayıcısı: saklama süresi dolan kayıt/transkripti periyodik
+// siler. Idempotent → çok-örnekte güvenli. Başlangıçta bir kez + aralıkla.
+const sweepRetention = (): void => {
+  void runRetention({
+    recordingDays: env.RECORDING_RETENTION_DAYS,
+    transcriptDays: env.TRANSCRIPT_RETENTION_DAYS,
+  })
+    .then((r) => app.log.info(r, 'retention sweep done'))
+    .catch((err) => app.log.warn({ err }, 'retention sweep failed'));
+};
+sweepRetention();
+const retentionTimer = setInterval(sweepRetention, env.RETENTION_SWEEP_INTERVAL_MS);
+retentionTimer.unref();
+
 await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
 app.log.info({ workerConcurrency: env.WORKER_CONCURRENCY, voiceWsUrl: env.VOICE_WS_URL }, 'api ready');
 
 // Graceful shutdown — uçtaki job'ları tamamlat, bağlantıları kapat.
 const shutdown = async (signal: NodeJS.Signals) => {
   app.log.info({ signal }, 'shutting down');
+  clearInterval(retentionTimer);
   await Promise.allSettled([worker.close(), app.close()]);
   process.exit(0);
 };

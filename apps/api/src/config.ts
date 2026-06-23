@@ -76,6 +76,14 @@ const EnvSchema = z.object({
   // Kampanya tüm aramaları anında kuyruğa atsa da işlenme hızı bununla sınırlanır.
   CALL_RATE_MAX: z.coerce.number().int().positive().default(10),
   CALL_RATE_DURATION_MS: z.coerce.number().int().positive().default(60_000),
+
+  // --- KVKK veri saklama (retention) ---
+  // Ses kaydı bu süreden sonra finalize kaydından silinir (recordingUrl null).
+  RECORDING_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+  // Transkript (PII içerir) bu süreden sonra silinir.
+  TRANSCRIPT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
+  // Retention tarayıcısının çalışma aralığı (varsayılan günde bir).
+  RETENTION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
 });
 
 export const env = EnvSchema.parse(process.env);
