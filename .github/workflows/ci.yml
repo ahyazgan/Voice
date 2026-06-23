@@ -11,9 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm sürümü package.json "packageManager" alanından okunur — burada
+      # version vermek ERR_PNPM_BAD_PM_VERSION'a yol açar (çift tanım).
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
