@@ -3,6 +3,9 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // @voice/shared'i kaynaktan (src) çöz: typecheck/build, shared'in dist'i
+    // build edilmeden de çalışır. Runtime'da (node dist) "default"→dist devreye girer.
+    "customConditions": ["@voice/source"],
     "lib": ["ES2022"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
