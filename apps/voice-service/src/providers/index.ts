@@ -81,6 +81,9 @@ function pickTTS(name: string): ITTSProvider {
         model: env.ELEVENLABS_MODEL,
         stability: env.ELEVENLABS_STABILITY,
         similarityBoost: env.ELEVENLABS_SIMILARITY,
+        style: env.ELEVENLABS_STYLE,
+        useSpeakerBoost: env.ELEVENLABS_SPEAKER_BOOST,
+        optimizeStreamingLatency: env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY,
       });
     default:
       throw new Error(`Unknown TTS provider: ${name}`);

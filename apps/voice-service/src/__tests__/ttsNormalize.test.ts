@@ -42,6 +42,42 @@ describe('normalizeForTTS — tarih', () => {
   });
 });
 
+describe('normalizeForTTS — yüzde', () => {
+  it('%25 → yüzde yirmi beş', () => {
+    expect(normalizeForTTS('%25 indirim')).toBe('yüzde yirmi beş indirim');
+  });
+  it('sondaki % de çevrilir', () => {
+    expect(normalizeForTTS('50 % faiz')).toBe('yüzde elli faiz');
+  });
+});
+
+describe('normalizeForTTS — saat', () => {
+  it('14:30 → on dört otuz', () => {
+    expect(normalizeForTTS('Saat 14:30 gibi ararım')).toBe('Saat on dört otuz gibi ararım');
+  });
+  it('tam saat (dakika 00) sadece saati okur', () => {
+    expect(normalizeForTTS('09:00 randevu')).toBe('dokuz randevu');
+  });
+});
+
+describe('normalizeForTTS — telefon & IBAN (rakam rakam)', () => {
+  it('E164 telefon rakam rakam okunur', () => {
+    expect(normalizeForTTS('+905551112233')).toBe(
+      'sıfır beş beş beş bir bir bir iki iki üç üç',
+    );
+  });
+  it('0 ile başlayan telefon', () => {
+    expect(normalizeForTTS('05551112233')).toBe(
+      'sıfır beş beş beş bir bir bir iki iki üç üç',
+    );
+  });
+  it('IBAN TR + haneler', () => {
+    expect(normalizeForTTS('TR330006100519786457841326')).toBe(
+      'TR üç üç sıfır sıfır sıfır altı bir sıfır sıfır beş bir dokuz yedi sekiz altı dört beş yedi sekiz dört bir üç iki altı',
+    );
+  });
+});
+
 describe('normalizeForTTS — dokunmaması gerekenler', () => {
   it('düz metni değiştirmez', () => {
     const t = 'Ayşe Hanım ile mi görüşüyorum?';

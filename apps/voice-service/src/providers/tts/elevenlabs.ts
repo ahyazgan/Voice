@@ -29,6 +29,12 @@ export interface ElevenLabsConfig {
   stability?: number;
   /** 0-1; sesin orijinaline ne kadar yakın */
   similarityBoost?: number;
+  /** 0-1; ifade gücü (yüksek = daha duygulu vurgu). TABAN; ton durum-bazlı oynar. */
+  style?: number;
+  /** Sesin orijinaline benzerliğini artırır (telefonda netlik). */
+  useSpeakerBoost?: boolean;
+  /** 0 (en kaliteli) … 4 (en hızlı). Gecikme/kalite dengesi. */
+  optimizeStreamingLatency?: number;
 }
 
 interface FormatChoice {
@@ -53,16 +59,23 @@ export class ElevenLabsTTS implements ITTSProvider {
 
   async *synthesizeStream(text: string, opts: TTSOptions): AsyncIterable<AudioChunk> {
     const fmt = pickFormat(opts.sampleRate);
+    const params = new URLSearchParams({ output_format: fmt.outputFormat });
+    const latency = this.cfg.optimizeStreamingLatency ?? 0;
+    if (latency > 0) params.set('optimize_streaming_latency', String(latency));
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
       this.cfg.voiceId,
-    )}/stream?output_format=${fmt.outputFormat}`;
+    )}/stream?${params.toString()}`;
 
+    // Durum-bazlı ton override'ı (orchestrator verir) config TABAN'ının üzerine biner.
+    const vs = opts.voiceSettings;
     const body = {
       text,
       model_id: this.cfg.model,
       voice_settings: {
-        stability: this.cfg.stability ?? 0.5,
-        similarity_boost: this.cfg.similarityBoost ?? 0.75,
+        stability: vs?.stability ?? this.cfg.stability ?? 0.5,
+        similarity_boost: vs?.similarityBoost ?? this.cfg.similarityBoost ?? 0.75,
+        style: vs?.style ?? this.cfg.style ?? 0,
+        use_speaker_boost: vs?.useSpeakerBoost ?? this.cfg.useSpeakerBoost ?? true,
       },
     };
 

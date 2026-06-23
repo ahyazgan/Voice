@@ -6,13 +6,25 @@ import type {
   ITTSProvider,
   TelephonySession,
 } from '@voice/shared';
-import { normalizeForTTS } from '@voice/shared';
+import {
+  normalizeForTTS,
+  voiceToneForState,
+  responseDelayMs,
+  detectEmotionalCue,
+  pickThinkingFiller,
+} from '@voice/shared';
+import type { ConversationState } from '@voice/shared';
 import { CallTelemetry, logger } from './telemetry.js';
-import { getCostRates, env } from './config.js';
+import { getCostRates, getVoiceToneBase, env } from './config.js';
 import { isBackchannel } from './backchannel.js';
 import { TurnHandler, type TurnDecision } from './turnHandler.js';
 import { CONSENT_ANNOUNCEMENT } from './prompts/index.js';
 import { postFinalize } from './persist.js';
+
+/** Test edilebilir küçük bekleme (insan beat'i için). */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface OrchestratorDeps {
   stt: ISTTProvider;
@@ -47,6 +59,8 @@ export class Orchestrator {
   /** Sessizlik dürtme sayacı + kaç kez dürtüldü (2. sessizlikte kapat). */
   private silenceTimer: NodeJS.Timeout | null = null;
   private silencePrompts = 0;
+  /** Tamamlanan müşteri turu sayısı — düşünme dolgusu rotasyonu için. */
+  private turnCount = 0;
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -107,6 +121,21 @@ export class Orchestrator {
 
   private async onUserTurn(userText: string): Promise<void> {
     try {
+      // İnsan beat'i: müşteri ZORLUK belirttiyse cevaptan ÖNCE kısa bir duraklama
+      // ("seni aldım"). Anlık cevap en güçlü robotik tell'dir. Nötr girdide gecikme
+      // YOK (KPI korunur). Dolgu açıksa ve duygusal an DEĞİLSE kısa düşünme dolgusu.
+      const turnState = this.turn.state;
+      if (detectEmotionalCue(userText)) {
+        const pause = responseDelayMs(userText, { empathyPauseMs: env.NATURALNESS_EMPATHY_PAUSE_MS });
+        if (pause > 0) await delay(pause);
+      } else if (env.NATURALNESS_THINKING_FILLER) {
+        await this.speak(pickThinkingFiller(turnState, this.turnCount), {
+          trackTurn: false,
+          record: false,
+        });
+      }
+      this.turnCount++;
+
       const decision = this.turn.supportsStreaming
         ? await this.streamingTurn(userText)
         : await this.blockingTurn(userText);
@@ -159,7 +188,10 @@ export class Orchestrator {
     return decision;
   }
 
-  private async speak(text: string, opts: { trackTurn: boolean }): Promise<void> {
+  private async speak(
+    text: string,
+    opts: { trackTurn: boolean; record?: boolean; state?: ConversationState },
+  ): Promise<void> {
     let stopped = false;
     this.ttsPlayback = { stop: () => (stopped = true) };
     this.speaking = true;
@@ -168,10 +200,13 @@ export class Orchestrator {
     // Sayı/tarih/para'yı insan okunuşuna çevir (TTS doğal okusun). History ve
     // maliyet ham metni kullanır; yalnızca SES bu normalize metni okur.
     const spoken = normalizeForTTS(text);
+    // Konuşma edimine göre ton: empati/pazarlıkta sıcak, teyitte net (docs §0).
+    const tone = voiceToneForState(opts.state ?? this.turn.state, getVoiceToneBase());
     const stream = this.deps.tts.synthesizeStream(spoken, {
       voice: 'tr-default',
       sampleRate: this.opts.sampleRate,
       language: 'tr-TR',
+      voiceSettings: { stability: tone.stability, style: tone.style },
     });
 
     let first = true;
@@ -187,10 +222,10 @@ export class Orchestrator {
     this.telemetry.addTtsChars(text.length);
     this.ttsPlayback = null;
     this.speaking = false;
-    if (!opts.trackTurn) {
-      // CONSENT_ANNOUNCEMENT / hata mesajı gibi: history'ye agent ifadesi olarak yaz.
-      this.turn.recordAgentUtterance(text);
-    }
+    // CONSENT_ANNOUNCEMENT / hata / sessizlik mesajı: history'ye agent ifadesi yaz.
+    // Düşünme dolgusu gibi geçici sesler record:false ile transkripte girmez.
+    const record = opts.record ?? !opts.trackTurn;
+    if (record) this.turn.recordAgentUtterance(text);
   }
 
   // --- Sessizlik yönetimi: müşteri cevap vermezse dürt, sonra kapat ----------
