@@ -33,6 +33,9 @@ interface CollectionsContext {
   attemptCount: number;
   disputeReason: string | null;
   callbackAt: string | null;
+  // KVKK: müşteri arama kaydını sözlü reddederse false. null = itiraz yok
+  // (operatör/platform consent bayrağı geçerli kalır).
+  recordingConsent: boolean | null;
 }
 
 // --- LLM'in üretebileceği INTENT'ler (durum geçiş olayları) ------------------
@@ -46,6 +49,7 @@ export type CollectionsEvent =
   | { type: 'ASKS_CALLBACK'; callbackAt?: string }
   | { type: 'GETS_ANGRY' }
   | { type: 'CONFIRMED' }
+  | { type: 'CONSENT_DECLINED' }
   | { type: 'NO_RESPONSE' };
 
 // Yasal/etik sınır: aynı aramada pazarlık denemesi üst limiti.
@@ -78,6 +82,8 @@ export function createCollectionsMachine(debtor: Debtor) {
       recordCallback: assign(({ event }) =>
         event.type === 'ASKS_CALLBACK' ? { callbackAt: event.callbackAt ?? null } : {},
       ),
+      // KVKK: kayıt reddi. Arama devam eder ama kayıt saklanmaz (persist drop eder).
+      declineConsent: assign({ recordingConsent: false }),
       bumpAttempt: assign(({ context }) => ({ attemptCount: context.attemptCount + 1 })),
       setOutcome: assign(({ event }) => ({ outcome: outcomeForEvent(event) })),
       // Söz iptali: müşteri teyit aşamasında vazgeçerse önceden kaydedilmiş
@@ -110,6 +116,7 @@ export function createCollectionsMachine(debtor: Debtor) {
       attemptCount: 0,
       disputeReason: null,
       callbackAt: null,
+      recordingConsent: null,
     },
     states: {
       // --- 1. SELAM + KAYIT RIZASI -------------------------------------------
@@ -127,6 +134,8 @@ export function createCollectionsMachine(debtor: Debtor) {
           IDENTITY_CONFIRMED: { target: 'remind', actions: 'verifyIdentity' },
           WRONG_PERSON: { target: 'closing', actions: 'setOutcome' },
           ASKS_CALLBACK: { target: 'closing', actions: ['recordCallback', 'setOutcome'] },
+          // Kayıt reddi: state'te kal, kaydı kapat, görüşmeye devam et.
+          CONSENT_DECLINED: { actions: 'declineConsent' },
           GETS_ANGRY: 'escalate',
           NO_RESPONSE: 'closing',
         },
@@ -306,6 +315,8 @@ export function eventFromIntent(
       return { type: 'GETS_ANGRY' };
     case 'CONFIRMED':
       return { type: 'CONFIRMED' };
+    case 'CONSENT_DECLINED':
+      return { type: 'CONSENT_DECLINED' };
     case 'NO_RESPONSE':
       return { type: 'NO_RESPONSE' };
     default:

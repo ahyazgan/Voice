@@ -241,7 +241,8 @@ export class Orchestrator {
       postFinalize({
         callId: this.opts.callContext.callId,
         outcome,
-        consentToRecord: this.opts.callContext.consentToRecord,
+        // KVKK: sözlü kayıt reddi platform/operatör bayrağını GEÇERSİZ kılar.
+        consentToRecord: this.opts.callContext.consentToRecord && this.turn.recordingConsent !== false,
         ...(this.turn.promisedAmount !== undefined && { promisedAmount: this.turn.promisedAmount }),
         ...(this.turn.promisedDate !== undefined && { promisedDate: this.turn.promisedDate }),
         ...(this.turn.callbackAt !== undefined && { callbackAt: this.turn.callbackAt }),

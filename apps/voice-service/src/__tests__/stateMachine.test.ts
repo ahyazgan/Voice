@@ -92,6 +92,25 @@ describe('confirm durumunda fikir değişikliği', () => {
   });
 });
 
+describe('KVKK kayıt reddi (CONSENT_DECLINED)', () => {
+  it('identify`de reddedince recordingConsent=false, görüşme devam eder', () => {
+    const actor = startConversation(debtor);
+    actor.send({ type: 'CONSENT_DECLINED' });
+    expect(currentState(actor)).toBe('identify'); // arama düşmez
+    expect(actor.getSnapshot().context.recordingConsent).toBe(false);
+    // sonrasında normal akış sürer
+    actor.send({ type: 'IDENTITY_CONFIRMED' });
+    expect(currentState(actor)).toBe('remind');
+    expect(actor.getSnapshot().context.recordingConsent).toBe(false);
+  });
+
+  it('reddedilmediğinde recordingConsent null kalır', () => {
+    const actor = startConversation(debtor);
+    actor.send({ type: 'IDENTITY_CONFIRMED' });
+    expect(actor.getSnapshot().context.recordingConsent).toBeNull();
+  });
+});
+
 describe('geri arama tarihi (callbackAt) taşınması', () => {
   it('remind`de ASKS_CALLBACK callbackAt`i context`e yazar', () => {
     const actor = startConversation(debtor);

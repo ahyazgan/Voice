@@ -70,6 +70,11 @@ export class TurnHandler {
     return this.actor.getSnapshot().context.callbackAt ?? undefined;
   }
 
+  /** KVKK: müşteri kaydı sözlü reddettiyse false; aksi halde null (itiraz yok). */
+  get recordingConsent(): boolean | null {
+    return this.actor.getSnapshot().context.recordingConsent;
+  }
+
   get state(): ConversationState {
     return currentState(this.actor);
   }

@@ -79,6 +79,7 @@ export type LLMIntent =
   | 'ASKS_CALLBACK'      // (extracted: callbackAt)
   | 'GETS_ANGRY'
   | 'CONFIRMED'
+  | 'CONSENT_DECLINED'   // KVKK: arama kaydını reddetti → recordingConsent=false
   | 'NO_RESPONSE';
 
 /**
