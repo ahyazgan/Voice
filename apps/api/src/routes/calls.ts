@@ -161,23 +161,17 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     const body = FinalizeInput.parse(req.body);
 
-    const call = await prisma.call.findUnique({ where: { id } });
-    if (!call) {
-      reply.code(404);
-      return { error: 'not_found' };
-    }
-    if (call.status === 'COMPLETED') {
-      // Idempotent: voice-service retry'ı / çift finalize zararsız.
-      reply.code(200);
-      return { ok: true, alreadyFinalized: true };
-    }
-
     const totalCostTRY = Math.round(body.cost.totalTRY * 100); // TRY → kuruş (DB int)
 
+    // ATOMİK idempotency: status'u koşullu (≠COMPLETED) çevirerek finalize'ı
+    // "claim" ederiz. Eşzamanlı/çift finalize'da yalnızca BİRİ claim eder
+    // (count=1); diğerleri count=0 görüp 'already' döner. Böylece sonuç tek kez
+    // yazılır ve takip (followup) tek kez tetiklenir (çift followup yarışı kapanır).
+    let state: 'finalized' | 'already' | 'notfound';
     try {
-    await prisma.$transaction([
-      prisma.call.update({
-        where: { id },
+    state = await prisma.$transaction(async (tx) => {
+      const claim = await tx.call.updateMany({
+        where: { id, status: { not: 'COMPLETED' } },
         data: {
           status: 'COMPLETED',
           endedAt: new Date(),
@@ -185,8 +179,12 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           // Outcome denormu: retry/raporlama sorgularında CallResult join'i gerekmesin.
           outcome: body.outcome,
         },
-      }),
-      prisma.callResult.upsert({
+      });
+      if (claim.count === 0) {
+        const exists = await tx.call.findUnique({ where: { id }, select: { id: true } });
+        return exists ? 'already' : 'notfound';
+      }
+      await tx.callResult.upsert({
         where: { callId: id },
         create: {
           callId: id,
@@ -223,10 +221,10 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           p95ResponseMs: body.p95ResponseMs ?? null,
           bargeIns: body.bargeIns,
         },
-      }),
+      });
       // Eski transkript varsa temizle (idempotent re-finalize için)
-      prisma.transcriptTurn.deleteMany({ where: { callId: id } }),
-      prisma.transcriptTurn.createMany({
+      await tx.transcriptTurn.deleteMany({ where: { callId: id } });
+      await tx.transcriptTurn.createMany({
         data: body.transcript.map((t) => ({
           callId: id,
           speaker: t.speaker,
@@ -234,14 +232,25 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           at: new Date(t.at),
           latencyMs: t.latencyMs ?? null,
         })),
-      }),
-    ]);
+      });
+      return 'finalized';
+    });
     } catch (err) {
       // Transaction rollback → Call.status RUNNING'de kaldı. 500 dön ki
       // voice-service finalize'ı başarısız sayıp tekrar denesin (idempotent).
       req.log.error({ id, err }, 'finalize transaction failed');
       reply.code(500);
       return { error: 'finalize_failed', callId: id };
+    }
+
+    if (state === 'notfound') {
+      reply.code(404);
+      return { error: 'not_found' };
+    }
+    if (state === 'already') {
+      // Idempotent: voice-service retry'ı / çift finalize zararsız.
+      reply.code(200);
+      return { ok: true, alreadyFinalized: true };
     }
 
     // Outcome-bazlı takip/tekrar: yalnızca İLK finalize'da (yukarıda COMPLETED
