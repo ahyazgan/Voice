@@ -87,8 +87,14 @@ if (env.VOICE_MODE === 'platform') {
   //   /llm-websocket/:callId  → Retell'in Custom-LLM WS'i (her tur burada gelir).
   // Path routing için ham HTTP sunucu + `noServer` WSS'ler + upgrade dispatcher.
   const httpServer = createServer((req, res) => {
-    // Vapi Custom-LLM: gelen OpenAI-uyumlu POST /vapi-llm/{callId}/chat/completions.
     const path = (req.url ?? '').split('?')[0] ?? '';
+    // Liveness: LB/k8s probe'u (WS-only sunucuda HTTP health şart).
+    if (req.method === 'GET' && path === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    // Vapi Custom-LLM: gelen OpenAI-uyumlu POST /vapi-llm/{callId}/chat/completions.
     const vapiMatch = path.match(/^\/vapi-llm\/(.+)\/chat\/completions$/);
     if (req.method === 'POST' && vapiMatch) {
       if (!vapiAuthorized(req)) {
@@ -197,7 +203,13 @@ if (env.VOICE_MODE === 'platform') {
   // Faz 2: kendi cascade. İki WS rolü, path'e göre ayrılır (platform dalıyla aynı kalıp):
   //   /control                → worker'ın "arama başlat" frame'i → placeCall + Orchestrator.
   //   /telnyx-media/:callId    → Telnyx'in INBOUND media stream'i (ses buradan akar).
-  const httpServer = createServer((_req, res) => {
+  const httpServer = createServer((req, res) => {
+    const path = (req.url ?? '').split('?')[0] ?? '';
+    if (req.method === 'GET' && path === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
     res.writeHead(426, { 'Content-Type': 'text/plain' });
     res.end('WebSocket only');
   });

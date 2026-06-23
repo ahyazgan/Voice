@@ -63,6 +63,11 @@ export async function closeQueue(): Promise<void> {
   await connection.quit();
 }
 
+/** Readiness: Redis erişilebilir mi? Erişilemezse fırlatır. */
+export async function pingRedis(): Promise<void> {
+  await connection.ping();
+}
+
 export function createCallWorker(
   processor: (data: CallJobData) => Promise<void>,
   concurrency = 4,
