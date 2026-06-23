@@ -7,7 +7,7 @@ import { campaignsRoutes } from './routes/campaigns.js';
 import { callsRoutes } from './routes/calls.js';
 import { statsRoutes } from './routes/stats.js';
 import { authRoutes } from './routes/auth.js';
-import { createCallWorker, closeQueue } from './queue/index.js';
+import { createCallWorker, closeQueue, pingRedis } from './queue/index.js';
 import { processCallJob } from './worker/processor.js';
 import { reapStuckCalls } from './worker/reaper.js';
 import { prisma } from './db/index.js';
@@ -24,7 +24,20 @@ const corsOrigin = env.PANEL_ORIGIN
 await app.register(cors, { origin: corsOrigin });
 await app.register(sensible);
 
+// Liveness: süreç ayakta mı.
 app.get('/health', async () => ({ ok: true }));
+
+// Readiness: bağımlılıklar (Postgres + Redis) erişilebilir mi. LB/k8s probe'u.
+app.get('/ready', async (_req, reply) => {
+  try {
+    await Promise.all([prisma.$queryRaw`SELECT 1`, pingRedis()]);
+    return { ok: true };
+  } catch (err) {
+    app.log.warn({ err }, 'readiness check failed');
+    reply.code(503);
+    return { ok: false };
+  }
+});
 
 // Panel auth guard: PANEL_AUTH_SECRET ayarlıysa /api/* okuma/yazma uçları
 // geçerli bearer token ister. Muaf: /api/login (token almak için), ve
