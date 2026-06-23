@@ -24,3 +24,6 @@ prisma/migrations/dev.db*
 *.wav
 *.mp3
 *.ulaw
+
+# TS incremental build cache
+*.tsbuildinfo

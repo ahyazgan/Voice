@@ -23,6 +23,9 @@ model Debtor {
   updatedAt  DateTime @updatedAt
 
   calls Call[]
+
+  // Numara bazlı arama/raporlama sorguları için.
+  @@index([phoneE164])
 }
 
 enum CampaignStatus {
@@ -91,6 +94,10 @@ model Call {
   // KVKK taciz sayımı + retry sorguları bu indeksten yararlanır.
   @@index([debtorId, createdAt])
   @@index([campaignId, status])
+  // retryRunner sameOutcomeCount sayımı (debtorId + outcome).
+  @@index([debtorId, outcome])
+  // reaper + "zamanı gelmiş/takılı" sorguları (status + scheduledFor).
+  @@index([status, scheduledFor])
   // Bir parent en çok BİR takip araması üretir → çift followup'ı DB'de engelle.
   // (NULL parentCallId'ler distinct sayılır; normal aramaları etkilemez.)
   @@unique([parentCallId])
