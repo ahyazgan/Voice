@@ -12,6 +12,7 @@
 // (test edilebilir, DB'siz). Bu dosya yalnızca DB sayımını yapar.
 // =============================================================================
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db/index.js';
 import { env } from '../config.js';
 import {
@@ -44,8 +45,10 @@ export async function canCallDebtor(
   debtorId: string,
   timeZone: string,
   now: Date = new Date(),
+  // Transaction içinde (claimCallSlot) çağrılabilsin diye client enjekte edilir.
+  db: Prisma.TransactionClient = prisma,
 ): Promise<CallabilityResult> {
-  const debtor = await prisma.debtor.findUnique({
+  const debtor = await db.debtor.findUnique({
     where: { id: debtorId },
     select: { doNotCall: true },
   });
@@ -56,9 +59,9 @@ export async function canCallDebtor(
   const counted = ['RUNNING', 'COMPLETED'] as const;
 
   const [today, thisWeek, total] = await Promise.all([
-    prisma.call.count({ where: { debtorId, status: { in: [...counted] }, startedAt: { gte: dayStart } } }),
-    prisma.call.count({ where: { debtorId, status: { in: [...counted] }, startedAt: { gte: weekStart } } }),
-    prisma.call.count({ where: { debtorId, status: { in: [...counted] } } }),
+    db.call.count({ where: { debtorId, status: { in: [...counted] }, startedAt: { gte: dayStart } } }),
+    db.call.count({ where: { debtorId, status: { in: [...counted] }, startedAt: { gte: weekStart } } }),
+    db.call.count({ where: { debtorId, status: { in: [...counted] } } }),
   ]);
 
   const verdict = evaluateLimits({ today, thisWeek, total }, limitsFromEnv());
@@ -71,4 +74,41 @@ export async function canCallDebtor(
     return { allowed: false, reason: 'weekly', nextEligibleAt: addDays(weekStart, 7) };
   }
   return { allowed: false, reason: 'total' };
+}
+
+export interface ClaimResult {
+  claimed: boolean;
+  reason?: CallabilityResult['reason'];
+}
+
+/**
+ * ATOMİK slot kapma. Worker, aramayı fiilen başlatmadan (RUNNING) hemen önce
+ * çağırır. Per-borçlu Postgres advisory lock altında taciz kapısını değerlendirir
+ * ve uygunsa Call'u RUNNING'e çeker — tek transaction'da.
+ *
+ * Neden: canCallDebtor sayımı (oku) ile RUNNING'e geçiş (yaz) ayrı olduğunda,
+ * aynı borçluya ait iki job eşzamanlı işlenirse ikisi de limiti "dolmamış" görüp
+ * birlikte arar (TOCTOU). Advisory lock bu iki adımı borçlu bazında serileştirir;
+ * lock transaction sonunda otomatik bırakılır.
+ */
+export async function claimCallSlot(
+  callId: string,
+  debtorId: string,
+  timeZone: string,
+  attempt: number,
+  now: Date = new Date(),
+): Promise<ClaimResult> {
+  return prisma.$transaction(async (tx) => {
+    // hashtext(debtorId) → advisory lock anahtarı; aynı borçlu için seri.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${debtorId}))`;
+
+    const verdict = await canCallDebtor(debtorId, timeZone, now, tx);
+    if (!verdict.allowed) return { claimed: false, reason: verdict.reason };
+
+    await tx.call.update({
+      where: { id: callId },
+      data: { status: 'RUNNING', startedAt: now, attempt },
+    });
+    return { claimed: true };
+  });
 }
