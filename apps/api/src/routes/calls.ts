@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db/index.js';
 import { env } from '../config.js';
 import { runRetryForFinalizedCall } from '../scheduling/retryRunner.js';
+import { buildCallsCsv } from './callsCsv.js';
 
 /**
  * Servis-içi auth: finalize gibi yazma endpoint'lerini korur. voice-service
@@ -90,6 +91,43 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
       take: 200,
       include: { debtor: true, result: true },
     });
+  });
+
+  // CSV dışa aktarım: liste ile aynı filtreler, 200 limiti yok (tüm sonuçlar).
+  // find-my-way statik rotayı /calls/:id'den önce eşler.
+  app.get('/calls/export.csv', async (req, reply) => {
+    const q = ListQuery.parse(req.query);
+    const rows = await prisma.call.findMany({
+      where: {
+        ...(q.status && { status: q.status }),
+        ...(q.outcome && { outcome: q.outcome }),
+        ...(q.campaignId && { campaignId: q.campaignId }),
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { debtor: true, result: true },
+    });
+
+    const csv = buildCallsCsv(
+      rows.map((c) => ({
+        fullName: c.debtor.fullName,
+        phoneE164: c.debtor.phoneE164,
+        amountDueKurus: c.debtor.amountDue,
+        status: c.status,
+        outcome: c.outcome,
+        promisedAmountKurus: c.result?.promisedAmount ?? null,
+        promisedDate: c.result?.promisedDate?.toISOString() ?? null,
+        durationSec: c.durationSec,
+        costKurus: c.result?.costTRY ?? null,
+        createdAt: c.createdAt.toISOString(),
+      })),
+    );
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="aramalar-${stamp}.csv"`);
+    // UTF-8 BOM: Excel Türkçe karakterleri doğru okusun.
+    return reply.send('﻿' + csv);
   });
 
   app.get('/calls/:id', async (req, reply) => {
