@@ -3,13 +3,29 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./types": "./src/types.ts",
-    "./schemas": "./src/schemas.ts",
-    "./providers": "./src/providers.ts"
+    ".": {
+      "@voice/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "@voice/source": "./src/types.ts",
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    },
+    "./schemas": {
+      "@voice/source": "./src/schemas.ts",
+      "types": "./dist/schemas.d.ts",
+      "default": "./dist/schemas.js"
+    },
+    "./providers": {
+      "@voice/source": "./src/providers.ts",
+      "types": "./dist/providers.d.ts",
+      "default": "./dist/providers.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
