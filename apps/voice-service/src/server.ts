@@ -34,9 +34,36 @@ function controlAuthorized(req: IncomingMessage): boolean {
   }
   const header = req.headers['authorization'] ?? '';
   const provided = header.startsWith('Bearer ') ? header.slice(7) : header;
+  return secretEquals(provided, secret);
+}
+
+/** Sabit-zamanlı sır karşılaştırması. */
+function secretEquals(provided: string, secret: string): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(secret);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Vapi Custom-LLM POST'u: x-vapi-secret header'ını VAPI_SERVER_SECRET ile doğrular. */
+function vapiAuthorized(req: IncomingMessage): boolean {
+  const secret = env.VAPI_SERVER_SECRET;
+  if (!secret) {
+    logger.warn('VAPI_SERVER_SECRET yok — vapi-llm auth KAPALI (yalnızca dev)');
+    return true;
+  }
+  const provided = req.headers['x-vapi-secret'];
+  return typeof provided === 'string' && secretEquals(provided, secret);
+}
+
+/** Gelen WS upgrade'i: ?token= query'sini INBOUND_WS_TOKEN ile doğrular. */
+function inboundTokenOk(req: IncomingMessage): boolean {
+  const secret = env.INBOUND_WS_TOKEN;
+  if (!secret) {
+    logger.warn('INBOUND_WS_TOKEN yok — gelen WS auth KAPALI (yalnızca dev)');
+    return true;
+  }
+  const token = new URL(req.url ?? '', 'http://x').searchParams.get('token') ?? '';
+  return secretEquals(token, secret);
 }
 
 logger.info(
@@ -64,6 +91,11 @@ if (env.VOICE_MODE === 'platform') {
     const path = (req.url ?? '').split('?')[0] ?? '';
     const vapiMatch = path.match(/^\/vapi-llm\/(.+)\/chat\/completions$/);
     if (req.method === 'POST' && vapiMatch) {
+      if (!vapiAuthorized(req)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
       const callId = decodeURIComponent(vapiMatch[1]!);
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c as Buffer));
@@ -108,6 +140,10 @@ if (env.VOICE_MODE === 'platform') {
     // /llm-websocket/{callId} — son segment bizim callId.
     const llmMatch = path.match(/^\/llm-websocket\/(.+)$/);
     if (llmMatch) {
+      if (!inboundTokenOk(req)) {
+        socket.destroy();
+        return;
+      }
       const callId = decodeURIComponent(llmMatch[1]!);
       llmWss.handleUpgrade(req, socket, head, (ws) => {
         void handleRetellWebSocket(ws, callId);
@@ -182,6 +218,10 @@ if (env.VOICE_MODE === 'platform') {
     }
     const mediaMatch = path.match(/^\/telnyx-media\/(.+)$/);
     if (mediaMatch) {
+      if (!inboundTokenOk(req)) {
+        socket.destroy();
+        return;
+      }
       const callId = decodeURIComponent(mediaMatch[1]!);
       mediaWss.handleUpgrade(req, socket, head, (ws) => handleTelnyxMediaWs(ws, callId));
       return;
