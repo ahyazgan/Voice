@@ -1,6 +1,8 @@
 import { WebSocketServer } from 'ws';
-import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createServer, type IncomingMessage } from 'node:http';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { z } from 'zod';
+import { DebtorSchema, type Debtor } from '@voice/shared';
 import { env } from './config.js';
 import { logger, LATENCY_TARGET_MS } from './telemetry.js';
 import { loadProviders } from './providers/index.js';
@@ -11,6 +13,31 @@ import { handleVapiChatCompletion, type VapiChatRequest } from './providers/plat
 import { handleTelnyxMediaWs } from './providers/telephony/telnyx.js';
 
 const providers = loadProviders();
+
+/** Zod çıktısındaki `invoiceRef?: string | undefined`'i strict optional Debtor'a indirger. */
+function toDebtor(d: z.infer<typeof DebtorSchema>): Debtor {
+  const { invoiceRef, ...rest } = d;
+  return invoiceRef !== undefined ? { ...rest, invoiceRef } : rest;
+}
+
+/**
+ * Kontrol WS (/control) servis-içi kimlik doğrulaması. Worker INTERNAL_API_SECRET'i
+ * Authorization: Bearer ile taşır. Secret yoksa (yerel dev) geçişe izin verilir ama
+ * UYARI loglanır — production'da ayarlanmalı; aksi halde internete açık /control
+ * yetkisiz arama başlatmaya (toll fraud / taciz) açık kalır.
+ */
+function controlAuthorized(req: IncomingMessage): boolean {
+  const secret = env.INTERNAL_API_SECRET;
+  if (!secret) {
+    logger.warn('INTERNAL_API_SECRET yok — /control auth KAPALI (yalnızca dev)');
+    return true;
+  }
+  const header = req.headers['authorization'] ?? '';
+  const provided = header.startsWith('Bearer ') ? header.slice(7) : header;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 logger.info(
   {
@@ -68,6 +95,10 @@ if (env.VOICE_MODE === 'platform') {
     const path = (req.url ?? '').split('?')[0] ?? '';
 
     if (path === '/control' || path === '/') {
+      if (!controlAuthorized(req)) {
+        socket.destroy();
+        return;
+      }
       controlWss.handleUpgrade(req, socket, head, (ws) => {
         controlWss.emit('connection', ws, req);
       });
@@ -92,8 +123,9 @@ if (env.VOICE_MODE === 'platform') {
     ws.once('message', async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
-        if (msg.type !== 'start' || !msg.debtor) {
-          ws.close(1002, 'expected start frame');
+        const parsed = DebtorSchema.safeParse(msg?.debtor);
+        if (msg?.type !== 'start' || !parsed.success) {
+          ws.close(1002, 'invalid start frame');
           return;
         }
         const callId = msg.callId ?? randomUUID();
@@ -102,7 +134,7 @@ if (env.VOICE_MODE === 'platform') {
           llm: providers.llm,
           callContext: {
             callId,
-            debtor: msg.debtor,
+            debtor: toDebtor(parsed.data),
             startedAt: new Date().toISOString(),
             consentToRecord: msg.consent === true,
           },
@@ -141,6 +173,10 @@ if (env.VOICE_MODE === 'platform') {
     const path = (req.url ?? '').split('?')[0] ?? '';
 
     if (path === '/control' || path === '/') {
+      if (!controlAuthorized(req)) {
+        socket.destroy();
+        return;
+      }
       controlWss.handleUpgrade(req, socket, head, (ws) => controlWss.emit('connection', ws, req));
       return;
     }
@@ -157,14 +193,15 @@ if (env.VOICE_MODE === 'platform') {
     ws.once('message', async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
-        if (msg.type !== 'start' || !msg.debtor) {
-          ws.close(1002, 'expected start frame');
+        const parsed = DebtorSchema.safeParse(msg?.debtor);
+        if (msg?.type !== 'start' || !parsed.success) {
+          ws.close(1002, 'invalid start frame');
           return;
         }
         const callId = msg.callId ?? randomUUID();
         const session = await providers.telephony.placeCall({
           callId,
-          to: msg.debtor.phoneE164,
+          to: parsed.data.phoneE164,
           from: msg.from ?? '+900000000000',
         });
         const orchestrator = new Orchestrator(
@@ -172,7 +209,7 @@ if (env.VOICE_MODE === 'platform') {
           {
             callContext: {
               callId,
-              debtor: msg.debtor,
+              debtor: toDebtor(parsed.data),
               startedAt: new Date().toISOString(),
               consentToRecord: msg.consent === true,
             },

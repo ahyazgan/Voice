@@ -102,7 +102,12 @@ interface RunArgs {
 
 function runVoiceCall(args: RunArgs): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(env.VOICE_WS_URL);
+    // Servis-içi auth: voice-service /control INTERNAL_API_SECRET ister (ayarlıysa).
+    const ws = new WebSocket(env.VOICE_WS_URL, {
+      headers: env.INTERNAL_API_SECRET
+        ? { authorization: `Bearer ${env.INTERNAL_API_SECRET}` }
+        : {},
+    });
     let settled = false;
     const finish = (err?: Error) => {
       if (settled) return;
