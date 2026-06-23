@@ -7,8 +7,10 @@ import { campaignsRoutes } from './routes/campaigns.js';
 import { callsRoutes } from './routes/calls.js';
 import { statsRoutes } from './routes/stats.js';
 import { authRoutes } from './routes/auth.js';
-import { createCallWorker } from './queue/index.js';
+import { createCallWorker, closeQueue } from './queue/index.js';
 import { processCallJob } from './worker/processor.js';
+import { reapStuckCalls } from './worker/reaper.js';
+import { prisma } from './db/index.js';
 import { verifyToken } from './auth/token.js';
 import { bearer } from './routes/auth.js';
 import { runRetention } from './retention/retention.js';
@@ -71,14 +73,31 @@ sweepRetention();
 const retentionTimer = setInterval(sweepRetention, env.RETENTION_SWEEP_INTERVAL_MS);
 retentionTimer.unref();
 
+// Stuck-call reaper: RUNNING'de takılı (finalize gelmemiş) aramaları kurtarır.
+const sweepStuckCalls = (): void => {
+  void reapStuckCalls(env.CALL_TIMEOUT_MS)
+    .then((n) => {
+      if (n > 0) app.log.warn({ reaped: n }, 'stuck calls reaped to FAILED');
+    })
+    .catch((err) => app.log.warn({ err }, 'stuck-call reaper failed'));
+};
+sweepStuckCalls();
+const reaperTimer = setInterval(sweepStuckCalls, env.REAPER_INTERVAL_MS);
+reaperTimer.unref();
+
 await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
 app.log.info({ workerConcurrency: env.WORKER_CONCURRENCY, voiceWsUrl: env.VOICE_WS_URL }, 'api ready');
 
-// Graceful shutdown — uçtaki job'ları tamamlat, bağlantıları kapat.
+// Graceful shutdown — SIRALI: önce timer'lar, sonra worker (uçtaki job bitsin),
+// sonra HTTP, en son kuyruk + Redis + Prisma bağlantıları. Sıra önemli: worker
+// bitmeden app.close() finalize endpoint'ini kapatırsa uçtaki arama sonucu kaybolur.
 const shutdown = async (signal: NodeJS.Signals) => {
   app.log.info({ signal }, 'shutting down');
   clearInterval(retentionTimer);
-  await Promise.allSettled([worker.close(), app.close()]);
+  clearInterval(reaperTimer);
+  await worker.close(); // yeni job alma, aktif olanı bitir
+  await app.close(); // HTTP'yi kapat (worker bittikten SONRA)
+  await Promise.allSettled([closeQueue(), prisma.$disconnect()]);
   process.exit(0);
 };
 process.on('SIGINT', shutdown);

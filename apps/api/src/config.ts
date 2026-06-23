@@ -87,6 +87,10 @@ const EnvSchema = z.object({
   TRANSCRIPT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   // Retention tarayıcısının çalışma aralığı (varsayılan günde bir).
   RETENTION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
+
+  // Stuck-call reaper: API yarıda çökerse RUNNING'de takılı kalan aramaları
+  // (finalize gelmedi) bu aralıkla FAILED'a çeker (CALL_TIMEOUT_MS'ten eski).
+  REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(5 * 60 * 1000),
 });
 
 export const env = EnvSchema.parse(process.env);

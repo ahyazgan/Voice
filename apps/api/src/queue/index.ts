@@ -22,6 +22,9 @@ export async function enqueueCall(
   opts?: JobsOptions,
 ): Promise<void> {
   await callQueue.add(`call:${data.debtorId}`, data, {
+    // Deterministik jobId: aynı (callId, attempt) için çift job'u BullMQ engeller
+    // (yarış/yeniden-zamanlama çift aramaya yol açmasın).
+    jobId: `${data.callId}:${data.attempt}`,
     attempts: 3,
     backoff: { type: 'exponential', delay: 60_000 },
     removeOnComplete: 1000,
@@ -39,7 +42,7 @@ export async function enqueueCall(
  * ölçeği büyürse jobId konvansiyonu (`${campaignId}:${callId}`) ile optimize edilebilir.
  */
 export async function removeCampaignJobs(campaignId: string): Promise<number> {
-  const jobs = await callQueue.getJobs(['waiting', 'delayed', 'paused', 'wait']);
+  const jobs = await callQueue.getJobs(['waiting', 'delayed', 'paused']);
   let removed = 0;
   for (const job of jobs) {
     if (job?.data?.campaignId === campaignId) {
@@ -52,6 +55,12 @@ export async function removeCampaignJobs(campaignId: string): Promise<number> {
     }
   }
   return removed;
+}
+
+/** Graceful shutdown: kuyruk + Redis bağlantısını kapatır. */
+export async function closeQueue(): Promise<void> {
+  await callQueue.close();
+  await connection.quit();
 }
 
 export function createCallWorker(
