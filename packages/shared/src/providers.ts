@@ -59,10 +59,24 @@ export interface ISTTProvider {
 
 // ---------- TTS ----------
 
+/**
+ * Tek bir seslendirme için TTS ses ayarı override'ı. Orchestrator konuşma
+ * durumuna göre tonu ayarlar (empati=sıcak, teyit=net); sağlayıcı bunları
+ * config TABAN değerinin üzerine uygular. Verilmeyen alan config'ten gelir.
+ */
+export interface TTSVoiceSettings {
+  stability?: number;
+  similarityBoost?: number;
+  style?: number;
+  useSpeakerBoost?: boolean;
+}
+
 export interface TTSOptions {
   voice: string;
   sampleRate: number;
   language: 'tr-TR';
+  /** Bu seslendirmeye özel ton override'ı (durum-bazlı). Yoksa config varsayılanı. */
+  voiceSettings?: TTSVoiceSettings;
 }
 
 export interface ITTSProvider {

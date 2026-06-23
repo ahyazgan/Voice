@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { VoiceTone } from '@voice/shared';
 import type { CostRates } from './telemetry.js';
 
 const EnvSchema = z.object({
@@ -71,6 +72,30 @@ const EnvSchema = z.object({
   // Telefon (8kHz) için biraz daha tutarlı/net: stability 0.5→0.6, similarity 0.75→0.7.
   ELEVENLABS_STABILITY: z.coerce.number().min(0).max(1).default(0.6),
   ELEVENLABS_SIMILARITY: z.coerce.number().min(0).max(1).default(0.7),
+  // style: ifade gücü (0 = nötr/sabit, yüksek = duygulu vurgu). Taban 0; ton
+  // durum-bazlı ayarlanır (empati/pazarlıkta artar, teyitte azalır). 8kHz hatta
+  // yüksek style dalgalanma yapabilir → muhafazakâr taban.
+  ELEVENLABS_STYLE: z.coerce.number().min(0).max(1).default(0.0),
+  // speaker_boost: sesin orijinaline benzerliğini artırır; telefonda netlik için açık.
+  ELEVENLABS_SPEAKER_BOOST: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // optimize_streaming_latency: 0 (en kaliteli) … 4 (en hızlı). Doğallık öncelikli
+  // olduğundan taban 0; gecikme darboğazsa 2-3'e çek ve telefonda yan yana dinle.
+  ELEVENLABS_OPTIMIZE_STREAMING_LATENCY: z.coerce.number().int().min(0).max(4).default(0),
+
+  // --- İnsansılık (doğallık) ayarları ---
+  // Müşteri zorluk belirtince (işsizim/hastayım/vefat) cevaptan ÖNCE bu kadar ms
+  // dur — "seni aldım" beat'i. Anlık cevap en güçlü robotik tell'dir. Nötr girdide
+  // gecikme YOK (KPI korunur). 0 = kapalı.
+  NATURALNESS_EMPATHY_PAUSE_MS: z.coerce.number().int().nonnegative().default(600),
+  // Düşünme dolgusu ("Tabii...", "Bir bakayım,") gecikme maskeler ama fazla
+  // gevezelik ters teper. Gerçek hatta (8kHz) kalibre edilene dek KAPALI gelir.
+  NATURALNESS_THINKING_FILLER: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 
   // Ajan kimliği (prompt + rıza anonsunda kullanılır). İnsan kendini tanıtır;
   // jenerik "Tahsilat Asistanı" yerine gerçek bir isim + işletme adı daha doğal.
@@ -112,4 +137,13 @@ export function getCostRates(): CostRates | undefined {
   };
   const anySet = Object.values(rates).some((v) => v > 0);
   return anySet ? rates : undefined;
+}
+
+/**
+ * TTS ton TABANI: durum-bazlı ton (voiceToneForState) bunun üzerine delta uygular.
+ * Sağlayıcıdan bağımsız tutmak için config'te toplanır (stability/style 0-1
+ * semantiği TTS sağlayıcıları arasında ortak).
+ */
+export function getVoiceToneBase(): VoiceTone {
+  return { stability: env.ELEVENLABS_STABILITY, style: env.ELEVENLABS_STYLE };
 }

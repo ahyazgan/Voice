@@ -47,6 +47,16 @@ export function turkishNumber(n: number): string {
   return out.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+const DIGIT_WORDS = ['sıfır', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz'];
+
+/** Bir rakam dizisini tek tek okunuşa çevirir ("0555" → "sıfır beş beş beş"). */
+function readDigits(digits: string): string {
+  return digits
+    .split('')
+    .map((ch) => DIGIT_WORDS[Number(ch)] ?? ch)
+    .join(' ');
+}
+
 /** "1.250,00" / "1250.50" / "1250" gibi TL string'ini sayıya (lira+kuruş) çevirir. */
 function parseTrAmount(raw: string): { lira: number; kurus: number } | null {
   let s = raw.trim();
@@ -63,10 +73,20 @@ function parseTrAmount(raw: string): { lira: number; kurus: number } | null {
  * TTS'e gidecek Türkçe metni normalize eder:
  *   - Para: "1.250,00 TL" / "1250 ₺" → "bin iki yüz elli lira"
  *   - Tarih: "2026-04-15" → "on beş Nisan"
- *   - Saat:dakika korunur (basit).
+ *   - Yüzde: "%25" → "yüzde yirmi beş"
+ *   - Saat: "14:30" → "on dört otuz"
+ *   - Telefon (TR) / IBAN → rakam rakam okunur (yanlış anlaşılmasın diye).
  */
 export function normalizeForTTS(text: string): string {
   let out = text;
+
+  // 0) IBAN "TR" + 24 hane → "TR" + rakam rakam (tek seferde anlaşılır okuma).
+  // Tarih/para regex'lerinden ÖNCE: uzun hane dizisi onlara yem olmasın.
+  out = out.replace(/\bTR(\d{24})\b/gi, (_m, d) => `TR ${readDigits(d)}`);
+
+  // 0b) Telefon (TR): +90XXXXXXXXXX veya 0XXXXXXXXXX → "sıfır beş beş ...".
+  out = out.replace(/\+90(\d{10})\b/g, (_m, d) => readDigits('0' + d));
+  out = out.replace(/\b0(\d{10})\b/g, (_m, d) => readDigits('0' + d));
 
   // 1) ISO tarih "YYYY-MM-DD" → "gün AyAdı" (yıl genelde gereksiz, telefonda kısa).
   out = out.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_m, _y, mm, dd) => {
@@ -86,6 +106,18 @@ export function normalizeForTTS(text: string): string {
       return parsed.kurus > 0 ? `${liraWords} ${turkishNumber(parsed.kurus)} kuruş` : liraWords;
     },
   );
+
+  // 3) Yüzde: "%25" / "25 %" → "yüzde yirmi beş".
+  out = out.replace(/%\s*(\d+)/g, (_m, n) => `yüzde ${turkishNumber(Number(n))}`);
+  out = out.replace(/(\d+)\s*%/g, (_m, n) => `yüzde ${turkishNumber(Number(n))}`);
+
+  // 4) Saat "HH:MM" → "on dört otuz". Sadece geçerli saat; saniyeli zinciri (14:30:00)
+  // ve daha uzun sayının parçasını dışla. Dakika 00 ise yalnızca saati oku.
+  out = out.replace(/(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?![:\d])/g, (_m, hh, mm) => {
+    const h = turkishNumber(Number(hh));
+    const m = Number(mm);
+    return m > 0 ? `${h} ${turkishNumber(m)}` : h;
+  });
 
   return out;
 }

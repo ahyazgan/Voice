@@ -28,40 +28,39 @@
 
 ---
 
-## 1. ŞİMDİ ekleyeceklerimiz (bu çalışmanın kapsamı)
+## 1. ŞİMDİ ekleyeceklerimiz (bu çalışmanın kapsamı) — ✅ UYGULANDI
+
+> Tümü kodlandı, `pnpm typecheck` + `pnpm test` yeşil. Gerçek hat (8kHz)
+> kalibrasyonu gereken yerler işaretli.
 
 ### Hızlı kazanımlar (düşük efor, yüksek/risksiz)
-- [ ] **ElevenLabs ayarlarını aç & kalibre et** (`elevenlabs.ts:63`): `style`,
-  `use_speaker_boost`, `optimize_streaming_latency` config'e taşı; sabit
-  `stability:0.5 / similarity:0.75` yerine durum-bazlı ayar. 8kHz hatta A/B.
-- [ ] **Normalizasyonu genişlet** (`ttsNormalize.ts`): telefon no, IBAN, yüzde,
-  saat ("14:30"→"on dört otuz"), sıra sayıları. Şu an yalnızca para + ISO tarih.
-- [ ] **Ölü backchannel'i bağla** (`backchannel.ts` → orchestrator): yarım kalmış;
-  AI konuşurken gelen "hı hı/tamam" tur sayılmasın.
+- [x] **ElevenLabs ayarlarını aç** (`elevenlabs.ts`, `config.ts`): `style`,
+  `use_speaker_boost`, `optimize_streaming_latency` config'e açıldı; ton artık
+  durum-bazlı (`voiceToneForState`). ⏳ değerlerin 8kHz hatta A/B kalibrasyonu kaldı.
+- [x] **Normalizasyonu genişlet** (`ttsNormalize.ts`): yüzde ("%25"→"yüzde yirmi beş"),
+  saat ("14:30"→"on dört otuz"), telefon ve IBAN (rakam rakam) eklendi. Sıra sayıları
+  yanlış-pozitif riski (cümle sonu nokta) nedeniyle bilinçli ertelendi → §3.
+- [x] **Backchannel bağlı** (`orchestrator.ts:88`): AI konuşurken gelen "hı hı/tamam"
+  zaten tur sayılmıyor (plan notu güncelliğini yitirmişti — doğrulandı).
 
 ### Algıda en büyük sıçrama (orta efor)
-- [ ] **Değişken cevap gecikmesi.** Sabit ~550ms = uncanny. Zor/duygusal girdiden
-  sonra "beat"i uzat; boilerplate'te kısalt.
-- [ ] **Duygusal mikro-pause.** Acı/zorluk girdisinden ("işten çıkarıldım") sonra
-  cevaptan ÖNCE ~400-600ms boşluk = "seni aldım" sinyali. Anlık cevap = sosyopat.
-- [ ] **Gecikme maskeleme (dolgu sesi).** STT-final → TTS-ilk-chunk boşluğunda kısa
-  doğal dolgu ("Tabii...", "Bir bakayım..."). Hem hedefi hem robotik anındalığı gizler.
-- [ ] **Geri referans (within-call memory).** History'de var ama prompt aktif
-  kullanmıyor: "az önce 15'inde dediniz ya", "demin taksit dediniz". Anafora kullan.
-- [ ] **Duruma göre TTS tonu.** negotiate/empati = yavaş, sıcak, stability düşük;
-  confirm = net, sabit; öfke = ses alçalır/yavaşlar (de-eskalasyon akustik).
+- [x] **Değişken cevap gecikmesi + duygusal mikro-pause** (`naturalness.ts`,
+  `orchestrator.ts`): müşteri zorluk belirtince (`detectEmotionalCue`) cevaptan ÖNCE
+  `NATURALNESS_EMPATHY_PAUSE_MS` (varsayılan 600ms) duraklar; nötr girdide 0 (KPI korunur).
+- [x] **Gecikme maskeleme (dolgu sesi)** (`pickThinkingFiller`): kodlandı + rotasyonlu.
+  ⏳ `NATURALNESS_THINKING_FILLER` ile **kapalı varsayılan** — fazla gevezelik ters
+  tepebileceğinden gerçek hatta kalibre edilene dek kapalı; açılınca devreye girer.
+- [x] **Geri referans (within-call memory)** (`prompts/index.ts`): "az önce 15'inde
+  dediniz ya", anafora kullanımı prompt'a işlendi.
+- [x] **Duruma göre TTS tonu** (`voiceToneForState`): negotiate/empati sıcak (stability↓,
+  style↑), confirm net (stability↑), escalate yumuşak.
 
-### Prompt'a işlenecek ince davranışlar
-- [ ] **Recipient design:** müşterinin kaydına/kelimesine uyum ("taksit dediniz,
-  evet taksit yapabiliriz"). Resmiyse resmi, sıcaksa ısın.
-- [ ] **Öz-düzeltme & söylem işaretleri:** "peki"=konu değişimi, "şimdi"=sadede
-  geliş, "bakın"=ciddiyet — işleve bağlı, rastgele değil.
-- [ ] **Belirsizlikte onar, tahmin etme:** STT "15 mi 50 mi" emin değilse sor.
-  Hem doğal hem para hatasını önler.
-- [ ] **Utanç azaltma (collections-özgü):** yüz kurtaran dil ödeme oranını artırır;
-  empati cümlesi şablon olamaz, *onların* spesifik zorluğuna değmeli.
-- [ ] **Talepten sonra sessizliği kullan:** ödeme isteyip susabilmek (insan tekniği);
-  robot boşluğu doldurur.
+### Prompt'a işlenen ince davranışlar (`prompts/index.ts`)
+- [x] **Recipient design:** müşterinin kelimesini yankıla, üslubuna uy.
+- [x] **Öz-düzeltme & söylem işaretleri:** "peki"/"şimdi"/"bakın" işleve bağlı.
+- [x] **Belirsizlikte onar, tahmin etme:** "15 mi 50 mi" emin değilse sor.
+- [x] **Utanç azaltma:** yüz kurtaran, suçlamayan dil; empati şablonu değil spesifik.
+- [x] **Talepten sonra sessizliği kullan:** tek soru sor, sus, dinle.
 
 ---
 
