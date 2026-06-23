@@ -29,6 +29,17 @@ const EMOTIONAL_CUE_STEMS: readonly string[] = [
   'mağdur', 'perişan', 'çaresiz', 'kira',
 ];
 
+// Öfke/saldırganlık ipuçları. Müşteri sinirlendiğinde ton DE-ESKALASYON yönüne
+// gider (sakin, sabit, yumuşak) ve cevap GECİKTİRİLMEZ — kızgın birini bekletmek
+// öfkeyi büyütür. Borçlu psikolojisi: itiraz/öfke tahsilatın en kritik anı.
+const ANGER_CUE_STEMS: readonly string[] = [
+  'sinir', 'kız', 'bağır', 'yeter', 'rahatsız etme', 'rahat bırak',
+  'ne istiyorsun', 'saçmal', 'rezalet', 'rezil', 'utanmı',
+  'şikayet', 'avukat', 'dava ', 'mahkeme', 'savcı',
+  'defol', 'çekil', 'kapat şunu', 'taciz', 'tehdit',
+  'salak', 'aptal', 'manyak', 'lan ', 'ulan', 'küfür',
+];
+
 /** Metni normalize eder (küçük harf tr, fazla boşluk sadeleştir). */
 function normalize(text: string): string {
   return text.toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ').trim();
@@ -100,6 +111,48 @@ export function voiceToneForState(state: ConversationState, base: VoiceTone): Vo
   return {
     stability: clamp01(base.stability + delta.stability),
     style: clamp01(base.style + delta.style),
+  };
+}
+
+// --- 3b) Müşteri duygulanımı (affect) → ton uyarlaması ----------------------
+// Ses yalnızca KONUŞMA DURUMUNA değil, müşterinin O ANKİ DUYGUSUNA da uymalı —
+// kapalı-döngü duygu uyarlamasının ASR gerektirmeyen, metin-tabanlı ilk katmanı.
+//   - anger    → de-eskalasyon: sakin/sabit/yumuşak (stability↑, style↓), bekletme YOK
+//   - hardship → empati: daha sıcak/esnek (stability↓, style↑)
+//   - neutral  → değişiklik yok
+// Öncelik anger > hardship: "param yok, ne istiyorsun benden!" → önce sakinleştir.
+
+export type Affect = 'anger' | 'hardship' | 'neutral';
+
+/**
+ * Müşteri girdisinin duygulanımı. Hem ton (applyAffectTone) hem zamanlama
+ * (öfkede bekletme yok) için tek kaynak. Saf → test edilebilir.
+ */
+export function detectAffect(text: string): Affect {
+  const n = normalize(text);
+  if (!n) return 'neutral';
+  if (ANGER_CUE_STEMS.some((stem) => n.includes(stem))) return 'anger';
+  if (EMOTIONAL_CUE_STEMS.some((stem) => n.includes(stem))) return 'hardship';
+  return 'neutral';
+}
+
+const AFFECT_TONE_DELTA: Record<Affect, VoiceTone> = {
+  // Sakin ve sabit konuş (erratik değil), dramatik vurguyu kıs → öfkeyi yatıştır.
+  anger: { stability: 0.15, style: -0.15 },
+  // Daha sıcak, biraz daha esnek/duygulu → "yanındayım" hissi.
+  hardship: { stability: -0.1, style: 0.1 },
+  neutral: { stability: 0, style: 0 },
+};
+
+/**
+ * Duruma göre hesaplanmış tonun ÜZERİNE müşteri duygulanımını uygular.
+ * voiceToneForState(...) sonucuyla zincirlenir. Saf → test edilebilir.
+ */
+export function applyAffectTone(tone: VoiceTone, affect: Affect): VoiceTone {
+  const delta = AFFECT_TONE_DELTA[affect];
+  return {
+    stability: clamp01(tone.stability + delta.stability),
+    style: clamp01(tone.style + delta.style),
   };
 }
 

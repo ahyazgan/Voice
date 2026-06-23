@@ -88,8 +88,13 @@ yol haritasında dursun:
 
 - **Dinamik prozodi/SSML motoru.** Sabit ayar değil; içeriğe göre `<break>`,
   emphasis, rate üreten katman. Vurguyu (focus) tutara ve tarihe koyan işaretleme.
-- **Kapalı-döngü akustik duygu uyarlaması.** STT'den müşterinin öfke/stresini
-  (prozodi + kelime) ölçüp TTS tonunu gerçek zamanlı ayarla. Müşteri yükseldi → AI alçaldı.
+- **Kapalı-döngü duygu uyarlaması.**
+  - [x] **Metin-tabanlı ilk katman (yapıldı):** `detectAffect` müşteri turunun
+    duygulanımını (anger / hardship / neutral) metinden çıkarır; `applyAffectTone`
+    durum tonunun üzerine biner — öfkede de-eskalasyon (sakin/sabit, bekletme yok),
+    zorlukta empati (sıcak + mikro-pause). Öncelik anger > hardship.
+  - [ ] **Akustik katman (sonra):** STT prozodisinden (ses tonu/yükseklik) öfke/stres
+    ölçümü — kelime değil sesin KENDİSİ. ASR'nin duygu sinyali gerektirir.
 - **Cross-call memory / kişiselleştirme.** İkinci aramada borçluyu hatırla
   ("geçen hafta 15'inde diye konuşmuştuk"). Tutarlı kişilik + güven.
 - **Gelişmiş turn-taking modeli.** Sadece endpointing değil; predictive endpointing,

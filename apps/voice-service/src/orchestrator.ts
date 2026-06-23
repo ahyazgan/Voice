@@ -9,11 +9,11 @@ import type {
 import {
   normalizeForTTS,
   voiceToneForState,
-  responseDelayMs,
-  detectEmotionalCue,
+  applyAffectTone,
+  detectAffect,
   pickThinkingFiller,
 } from '@voice/shared';
-import type { ConversationState } from '@voice/shared';
+import type { ConversationState, Affect } from '@voice/shared';
 import { CallTelemetry, logger } from './telemetry.js';
 import { getCostRates, getVoiceToneBase, env } from './config.js';
 import { isBackchannel } from './backchannel.js';
@@ -61,6 +61,8 @@ export class Orchestrator {
   private silencePrompts = 0;
   /** Tamamlanan müşteri turu sayısı — düşünme dolgusu rotasyonu için. */
   private turnCount = 0;
+  /** Son müşteri turunun duygulanımı — bu turun SES tonunu (de-eskalasyon/empati) belirler. */
+  private lastAffect: Affect = 'neutral';
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -121,14 +123,15 @@ export class Orchestrator {
 
   private async onUserTurn(userText: string): Promise<void> {
     try {
-      // İnsan beat'i: müşteri ZORLUK belirttiyse cevaptan ÖNCE kısa bir duraklama
-      // ("seni aldım"). Anlık cevap en güçlü robotik tell'dir. Nötr girdide gecikme
-      // YOK (KPI korunur). Dolgu açıksa ve duygusal an DEĞİLSE kısa düşünme dolgusu.
+      // Müşteri duygulanımı bu turun SES tonunu ve zamanlamasını belirler:
+      //  - hardship → cevaptan ÖNCE kısa "seni aldım" duraklaması (insan beat'i)
+      //  - anger    → bekletme YOK; kızgın birini bekletmek öfkeyi büyütür (ton sakinleşir)
+      //  - neutral  → gecikme yok (KPI korunur); dolgu açıksa kısa düşünme dolgusu
       const turnState = this.turn.state;
-      if (detectEmotionalCue(userText)) {
-        const pause = responseDelayMs(userText, { empathyPauseMs: env.NATURALNESS_EMPATHY_PAUSE_MS });
-        if (pause > 0) await delay(pause);
-      } else if (env.NATURALNESS_THINKING_FILLER) {
+      this.lastAffect = detectAffect(userText);
+      if (this.lastAffect === 'hardship') {
+        if (env.NATURALNESS_EMPATHY_PAUSE_MS > 0) await delay(env.NATURALNESS_EMPATHY_PAUSE_MS);
+      } else if (this.lastAffect === 'neutral' && env.NATURALNESS_THINKING_FILLER) {
         await this.speak(pickThinkingFiller(turnState, this.turnCount), {
           trackTurn: false,
           record: false,
@@ -200,8 +203,12 @@ export class Orchestrator {
     // Sayı/tarih/para'yı insan okunuşuna çevir (TTS doğal okusun). History ve
     // maliyet ham metni kullanır; yalnızca SES bu normalize metni okur.
     const spoken = normalizeForTTS(text);
-    // Konuşma edimine göre ton: empati/pazarlıkta sıcak, teyitte net (docs §0).
-    const tone = voiceToneForState(opts.state ?? this.turn.state, getVoiceToneBase());
+    // Ton iki katman: (1) konuşma edimine göre (empati/pazarlıkta sıcak, teyitte
+    // net), (2) müşteri duygulanımına göre (öfkede de-eskalasyon, zorlukta empati).
+    const tone = applyAffectTone(
+      voiceToneForState(opts.state ?? this.turn.state, getVoiceToneBase()),
+      this.lastAffect,
+    );
     const stream = this.deps.tts.synthesizeStream(spoken, {
       voice: 'tr-default',
       sampleRate: this.opts.sampleRate,
