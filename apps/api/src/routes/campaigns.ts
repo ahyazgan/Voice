@@ -11,10 +11,34 @@ const CreateCampaignSchema = z.object({
 
 export async function campaignsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/campaigns', async () => {
-    return prisma.campaign.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { calls: true } } },
-    });
+    const [campaigns, outcomeGroups] = await Promise.all([
+      prisma.campaign.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { calls: true } } },
+      }),
+      // Call.outcome denormalize alanı: huni metriklerini CallResult join'i
+      // olmadan tek groupBy ile kampanya başına derler (maliyet için dashboard
+      // kampanya filtresine bak).
+      prisma.call.groupBy({
+        by: ['campaignId', 'outcome'],
+        _count: true,
+        where: { outcome: { not: null } },
+      }),
+    ]);
+
+    const metrics = new Map<string, { reached: number; promises: number }>();
+    for (const g of outcomeGroups) {
+      const m = metrics.get(g.campaignId) ?? { reached: 0, promises: 0 };
+      // Ulaşılan (kontak): NO_ANSWER dışı tüm sonuçlandırılmış aramalar.
+      if (g.outcome !== 'NO_ANSWER') m.reached += g._count;
+      if (g.outcome === 'PROMISE_TO_PAY') m.promises += g._count;
+      metrics.set(g.campaignId, m);
+    }
+
+    return campaigns.map((c) => ({
+      ...c,
+      metrics: metrics.get(c.id) ?? { reached: 0, promises: 0 },
+    }));
   });
 
   app.post('/campaigns', async (req, reply) => {

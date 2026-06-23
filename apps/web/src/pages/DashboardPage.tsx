@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../lib/api.js';
 import { formatKurus, formatPercent, formatDuration } from '../lib/format.js';
 import { Spinner, ErrorState, OutcomeBadge } from '../components/ui.js';
-import type { Stats, CallOutcome } from '../types.js';
+import type { Stats, Campaign, CallOutcome } from '../types.js';
 
 // Sonuç dağılımını tutarlı bir sırada göster (en "değerliden" en nötrüne).
 const OUTCOME_ORDER: CallOutcome[] = [
@@ -16,11 +17,27 @@ const OUTCOME_ORDER: CallOutcome[] = [
 ];
 
 export function DashboardPage() {
+  const [campaignId, setCampaignId] = useState('');
+
+  const { data: campaigns } = useQuery<Campaign[]>({
+    queryKey: ['campaigns'],
+    queryFn: () => apiFetch('/campaigns'),
+  });
+
   const { data, isLoading, error } = useQuery<Stats>({
-    queryKey: ['stats'],
-    queryFn: () => apiFetch('/stats'),
+    queryKey: ['stats', campaignId],
+    queryFn: () => apiFetch(`/stats${campaignId ? `?campaignId=${campaignId}` : ''}`),
     refetchInterval: 15000,
   });
+
+  const selector = (
+    <select className="select" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
+      <option value="">Tüm kampanyalar</option>
+      {campaigns?.map((c) => (
+        <option key={c.id} value={c.id}>{c.name}</option>
+      ))}
+    </select>
+  );
 
   if (isLoading) return <Spinner />;
   if (error) return <ErrorState message={(error as Error).message} />;
@@ -30,8 +47,13 @@ export function DashboardPage() {
 
   return (
     <div>
-      <h2 className="page-title">Genel Bakış</h2>
-      <p className="page-sub">Tüm kampanyalar — ulaşma, ödeme sözü ve maliyet özeti.</p>
+      <div className="spread">
+        <div>
+          <h2 className="page-title">Genel Bakış</h2>
+          <p className="page-sub">Ulaşma, ödeme sözü ve maliyet özeti.</p>
+        </div>
+        {selector}
+      </div>
 
       {/* Sonuç / dönüşüm */}
       <div className="card">
