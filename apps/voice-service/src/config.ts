@@ -49,6 +49,14 @@ const EnvSchema = z.object({
   // completions adresimize işaret eder; OpenAI-uyumlu chat-completion bekler.
   VAPI_ASSISTANT_ID: z.string().optional(),
   VAPI_PHONE_NUMBER_ID: z.string().optional(),
+  // Vapi server secret: assistant'ta server.secret olarak ayarlanır; Vapi her
+  // istekte x-vapi-secret header'ı ile gönderir. Boşsa doğrulama KAPALI (dev).
+  VAPI_SERVER_SECRET: z.string().optional(),
+
+  // Gelen WS uçları (Retell /llm-websocket, Telnyx /telnyx-media) için paylaşılan
+  // token. Provider URL'sine `?token=...` olarak eklenir; callId tahminiyle sahte
+  // tur/medya enjeksiyonunu engeller. Boşsa doğrulama KAPALI (dev).
+  INBOUND_WS_TOKEN: z.string().optional(),
 
   // ElevenLabs (TTS_PROVIDER=elevenlabs ise ELEVENLABS_API_KEY zorunlu).
   // ⚠️ VOICE ID: Varsayılan '21m00Tcm4TlvDq8ikWAM' (Rachel) İNGİLİZCE bir sestir —

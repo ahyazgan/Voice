@@ -70,8 +70,9 @@ PANEL_AUTH_SECRET=<rastgele-uzun-sır>
 ## 2. Retell agent'ı oluştur (panel)
 
 - [ ] Yeni agent, tip **Custom LLM**.
-- [ ] `llm_websocket_url` = `wss://<tünel-host>/llm-websocket/{call_id}`
-      (tünel host'unu adım 4'te alacaksın; sonra buraya yapıştır).
+- [ ] `llm_websocket_url` = `wss://<tünel-host>/llm-websocket/{call_id}?token=<INBOUND_WS_TOKEN>`
+      (tünel host'unu adım 4'te alacaksın; `INBOUND_WS_TOKEN` ayarlıysa `?token=`
+      eklemek ZORUNLU, yoksa voice-service bağlantıyı reddeder).
 - [ ] `begin_message` **boş** bırak — açılış (KVKK rıza anonsu) bizden dinamik gelir.
 - [ ] **Türkçe ses seç** (yol haritası adım 2). Faz 1'de ses Retell agent'ında
       seçilir, ELEVENLABS_VOICE_ID **değil**. Telefon kalitesinde (8kHz) 2–3
@@ -109,7 +110,7 @@ cloudflared tunnel --url http://localhost:8787
 ```
 
 - [ ] Çıkan host'la Retell agent `llm_websocket_url`'ini güncelle:
-      `wss://<host>/llm-websocket/{call_id}` (https → wss).
+      `wss://<host>/llm-websocket/{call_id}?token=<INBOUND_WS_TOKEN>` (https → wss).
 - [ ] `{call_id}` literaldir; Retell bağlanırken yola kendi call_id'sini koyar
       ([retell.ts](../apps/voice-service/src/providers/platform/retell.ts) registry
       eşlemesini buna göre yapar).
