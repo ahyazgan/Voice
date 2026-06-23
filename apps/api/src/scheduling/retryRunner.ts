@@ -7,6 +7,7 @@
 // İdempotentlik: yalnızca İLK finalize'da çağrılmalı (çağıran sorumlu).
 // =============================================================================
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db/index.js';
 import { env } from '../config.js';
 import { decideRetry, type RetryConfig } from './retryPolicy.js';
@@ -68,15 +69,25 @@ export async function runRetryForFinalizedCall(
   }
 
   // Yeni takip/tekrar araması: aynı kampanyada, parentCallId zinciriyle.
-  const followup = await prisma.call.create({
-    data: {
-      campaignId: call.campaignId,
-      debtorId: call.debtorId,
-      status: 'QUEUED',
-      parentCallId: callId,
-    },
-    select: { id: true },
-  });
+  // parentCallId UNIQUE: bu parent için takip zaten oluşmuşsa (çift finalize/
+  // yarış) create P2002 atar → idempotent biçimde "zaten planlandı" dön.
+  let followup: { id: string };
+  try {
+    followup = await prisma.call.create({
+      data: {
+        campaignId: call.campaignId,
+        debtorId: call.debtorId,
+        status: 'QUEUED',
+        parentCallId: callId,
+      },
+      select: { id: true },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return { scheduled: false, reason: 'followup_exists' };
+    }
+    throw err;
+  }
 
   await scheduleCall(
     {
