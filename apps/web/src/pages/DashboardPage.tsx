@@ -18,6 +18,8 @@ const OUTCOME_ORDER: CallOutcome[] = [
 
 export function DashboardPage() {
   const [campaignId, setCampaignId] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   const { data: campaigns } = useQuery<Campaign[]>({
     queryKey: ['campaigns'],
@@ -25,18 +27,37 @@ export function DashboardPage() {
   });
 
   const { data, isLoading, error } = useQuery<Stats>({
-    queryKey: ['stats', campaignId],
-    queryFn: () => apiFetch(`/stats${campaignId ? `?campaignId=${campaignId}` : ''}`),
+    queryKey: ['stats', campaignId, from, to],
+    queryFn: () => {
+      const p = new URLSearchParams();
+      if (campaignId) p.set('campaignId', campaignId);
+      // date input (yyyy-mm-dd) → gün başı/sonu ISO datetime.
+      if (from) p.set('from', `${from}T00:00:00.000Z`);
+      if (to) p.set('to', `${to}T23:59:59.999Z`);
+      const qs = p.toString();
+      return apiFetch(`/stats${qs ? `?${qs}` : ''}`);
+    },
     refetchInterval: 15000,
+    placeholderData: (prev) => prev, // filtre değişiminde eski veriyi koru (titreme yok)
   });
 
-  const selector = (
-    <select className="select" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
-      <option value="">Tüm kampanyalar</option>
-      {campaigns?.map((c) => (
-        <option key={c.id} value={c.id}>{c.name}</option>
-      ))}
-    </select>
+  const filters = (
+    <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <select className="select" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
+        <option value="">Tüm kampanyalar</option>
+        {campaigns?.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      <input className="input" type="date" value={from} max={to || undefined}
+        onChange={(e) => setFrom(e.target.value)} aria-label="Başlangıç" />
+      <span className="page-sub">–</span>
+      <input className="input" type="date" value={to} min={from || undefined}
+        onChange={(e) => setTo(e.target.value)} aria-label="Bitiş" />
+      {(from || to) && (
+        <button className="btn ghost sm" onClick={() => { setFrom(''); setTo(''); }}>Temizle</button>
+      )}
+    </div>
   );
 
   if (isLoading) return <Spinner />;
@@ -52,7 +73,7 @@ export function DashboardPage() {
           <h2 className="page-title">Genel Bakış</h2>
           <p className="page-sub">Ulaşma, ödeme sözü ve maliyet özeti.</p>
         </div>
-        {selector}
+        {filters}
       </div>
 
       {/* Sonuç / dönüşüm */}
