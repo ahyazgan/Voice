@@ -75,9 +75,23 @@ export function createCollectionsMachine(debtor: Debtor) {
       ),
       bumpAttempt: assign(({ context }) => ({ attemptCount: context.attemptCount + 1 })),
       setOutcome: assign(({ event }) => ({ outcome: outcomeForEvent(event) })),
+      // Söz iptali: müşteri teyit aşamasında vazgeçerse önceden kaydedilmiş
+      // taksit/söz alanlarını TEMİZLE — aksi halde outcome REFUSED/CALLBACK iken
+      // promisedAmount dolu kalır (panel/muhasebe tutarsızlığı).
+      clearPromise: assign({ promisedAmount: null, promisedDate: null }),
+      refusePromise: assign({
+        outcome: 'REFUSED' as CallOutcome,
+        promisedAmount: null,
+        promisedDate: null,
+      }),
     },
     guards: {
       negotiationExhausted: ({ context }) => context.attemptCount >= MAX_NEGOTIATION_ATTEMPTS,
+      // Ödeme sözü ancak tutar VEYA tarih netse kilitlenir. İkisi de boşsa
+      // "söz verdi ama ne zaman/ne kadar belli değil" → geçersiz PROMISE_TO_PAY.
+      hasAmountOrDate: ({ event }) =>
+        (event.type === 'WILL_PAY' || event.type === 'PARTIAL_OR_PLAN') &&
+        (event.amount != null || event.date != null),
     },
   }).createMachine({
     id: 'collections',
@@ -118,7 +132,11 @@ export function createCollectionsMachine(debtor: Debtor) {
       // Gerçek müşteri sessizliği VAD timeout ile (orchestrator) ele alınır.
       remind: {
         on: {
-          WILL_PAY: { target: 'confirm', actions: ['recordPromise', 'setOutcome'] },
+          // Tutar/tarih varsa sözü kilitle; yoksa eşleşen geçiş yok → remind'de
+          // kal, model bir sonraki turda eksik detayı (tutar/tarih) tekrar sorar.
+          WILL_PAY: [
+            { guard: 'hasAmountOrDate', target: 'confirm', actions: ['recordPromise', 'setOutcome'] },
+          ],
           PARTIAL_OR_PLAN: { target: 'negotiate', actions: 'recordPromise' },
           DISPUTES_DEBT: { target: 'escalate', actions: ['recordDispute', 'setOutcome'] },
           REFUSES: { target: 'negotiate', actions: 'bumpAttempt' },
@@ -147,21 +165,35 @@ export function createCollectionsMachine(debtor: Debtor) {
           },
         ],
         on: {
-          WILL_PAY: { target: 'confirm', actions: ['recordPromise', 'setOutcome'] },
-          PARTIAL_OR_PLAN: { target: 'confirm', actions: ['recordPromise', 'setOutcome'] },
+          // Sözü ancak tutar/tarih netse kilitle (bkz. hasAmountOrDate); aksi
+          // halde negotiate'te kal, model detayı tekrar sorar.
+          WILL_PAY: [
+            { guard: 'hasAmountOrDate', target: 'confirm', actions: ['recordPromise', 'setOutcome'] },
+          ],
+          PARTIAL_OR_PLAN: [
+            { guard: 'hasAmountOrDate', target: 'confirm', actions: ['recordPromise', 'setOutcome'] },
+          ],
           DISPUTES_DEBT: { target: 'escalate', actions: ['recordDispute', 'setOutcome'] },
           REFUSES: { actions: 'bumpAttempt' },
           GETS_ANGRY: 'escalate',
-          ASKS_CALLBACK: { target: 'closing', actions: 'setOutcome' },
+          ASKS_CALLBACK: { target: 'closing', actions: ['clearPromise', 'setOutcome'] },
           // NO_RESPONSE: stay — bkz. remind state notu.
         },
       },
 
       // --- 5. TEYİT (ödeme sözü kilitle) -------------------------------------
+      // Müşteri teyit aşamasında fikir değiştirebilir: itiraz/ret/geri-arama.
+      // Bu geçişler olmadan akış kilitlenir VE outcome yanlışlıkla PROMISE_TO_PAY
+      // kalırdı (teyitte vazgeçen müşteri "ödeme sözü verdi" sanılır).
       confirm: {
         on: {
           CONFIRMED: { target: 'closing' },
-          PARTIAL_OR_PLAN: { actions: 'recordPromise' },
+          // Düzeltme yalnızca gerçek tutar/tarih varsa kaydedilir — boş düzeltme
+          // önceki geçerli sözü silmesin.
+          PARTIAL_OR_PLAN: [{ guard: 'hasAmountOrDate', actions: 'recordPromise' }],
+          DISPUTES_DEBT: { target: 'escalate', actions: ['recordDispute', 'setOutcome'] },
+          REFUSES: { target: 'closing', actions: 'refusePromise' },
+          ASKS_CALLBACK: { target: 'closing', actions: ['clearPromise', 'setOutcome'] },
           GETS_ANGRY: 'escalate',
           // NO_RESPONSE: stay — teyit isteği tekrar sorulabilir.
         },

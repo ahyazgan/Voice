@@ -108,8 +108,13 @@ const STATE_GUIDE: Record<ConversationState, StateGuide> = {
   confirm: {
     task: `Alınan ödeme sözünü GERİ OKU: tutar + tarih. "Doğru mu?" diye teyit al.
            Onaylarsa CONFIRMED. Düzeltirse PARTIAL_OR_PLAN (güncel fields).
-           Teşekkür et, kibarca kapanışa hazırlan.`,
-    intents: ['CONFIRMED', 'PARTIAL_OR_PLAN', 'GETS_ANGRY', 'NO_RESPONSE'],
+           Vazgeçip "ödemeyeceğim/yapamam" derse REFUSES. "Aslında bu borç bana ait
+           değil / ödedim" derse DISPUTES_DEBT (reason). "Şimdi olmaz, sonra arayın"
+           derse ASKS_CALLBACK. Sinirlenirse GETS_ANGRY. Teşekkür et, kibarca kapan.`,
+    intents: [
+      'CONFIRMED', 'PARTIAL_OR_PLAN', 'DISPUTES_DEBT',
+      'REFUSES', 'ASKS_CALLBACK', 'GETS_ANGRY', 'NO_RESPONSE',
+    ],
   },
   escalate: {
     // Pratikte ulaşılmaz: machine entry-action ile outcome'ı set edip closing'e geçer.

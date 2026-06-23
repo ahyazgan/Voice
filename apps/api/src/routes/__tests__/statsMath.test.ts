@@ -21,8 +21,8 @@ describe('assembleStats', () => {
     expect(s.totals).toEqual({ calls: 0, completed: 0, failed: 0, reached: 0 });
     expect(s.rates.reachRate).toBeNull();
     expect(s.rates.promiseRate).toBeNull();
-    expect(s.cost.perCallTRY).toBeNull();
-    expect(s.cost.perPromiseTRY).toBeNull();
+    expect(s.cost.perCallKurus).toBeNull();
+    expect(s.cost.perPromiseKurus).toBeNull();
     // tüm sonuç anahtarları 0 ile dolu olmalı
     expect(s.outcomes.PROMISE_TO_PAY).toBe(0);
     expect(s.outcomes.NO_ANSWER).toBe(0);
@@ -52,9 +52,9 @@ describe('assembleStats', () => {
       promisedTotalKurus: 150000,
       totalCostKurus: 1000,
     });
-    expect(s.cost.totalTRY).toBe(1000);
-    expect(s.cost.perCallTRY).toBe(Math.round(1000 / 3)); // 333
-    expect(s.cost.perPromiseTRY).toBe(500); // 1000 / 2
+    expect(s.cost.totalKurus).toBe(1000);
+    expect(s.cost.perCallKurus).toBe(Math.round(1000 / 3)); // 333
+    expect(s.cost.perPromiseKurus).toBe(500); // 1000 / 2
     expect(s.promise).toEqual({ count: 2, totalAmount: 150000 });
   });
 
