@@ -7,6 +7,7 @@ import { campaignsRoutes } from './routes/campaigns.js';
 import { callsRoutes } from './routes/calls.js';
 import { statsRoutes } from './routes/stats.js';
 import { authRoutes } from './routes/auth.js';
+import { metricsRoutes } from './routes/metrics.js';
 import { createCallWorker, closeQueue, pingRedis } from './queue/index.js';
 import { processCallJob } from './worker/processor.js';
 import { reapStuckCalls } from './worker/reaper.js';
@@ -61,6 +62,8 @@ await app.register(campaignsRoutes, { prefix: '/api' });
 await app.register(callsRoutes, { prefix: '/api' });
 await app.register(statsRoutes, { prefix: '/api' });
 await app.register(authRoutes, { prefix: '/api' });
+// /metrics — /api dışında; preHandler auth guard'ından muaf (Prometheus scrape).
+await app.register(metricsRoutes);
 
 // BullMQ worker: kuyruktaki aramaları voice-service'e WS ile tetikler.
 const worker = createCallWorker(async (data) => {

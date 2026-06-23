@@ -14,6 +14,8 @@ docker build --target web           -t voice-web:latest .
 
 - **api** (`:4000`) — REST + BullMQ worker + retention/reaper sweep'leri.
   Sağlık: `/health` (liveness), `/ready` (Postgres + Redis).
+  Gözlemlenebilirlik: `/metrics` (Prometheus — arama durum/sonuç sayıları +
+  kuyruk derinliği; `/api` dışı, ağ politikasıyla internal-only tutulmalı).
 - **voice-service** (`:8787`) — Faz 1 köprü / Faz 2 cascade WS. Sağlık: `GET /health`.
 - **web** — statik SPA, nginx ile servis edilir (`:80`).
 
