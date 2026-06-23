@@ -3,8 +3,14 @@ import { z } from 'zod';
 import { timingSafeEqual } from 'node:crypto';
 import { env } from '../config.js';
 import { issueToken, verifyToken } from '../auth/token.js';
+import { hitLimit, type RateState } from '../auth/rateLimit.js';
 
 const LoginSchema = z.object({ password: z.string() });
+
+// /login brute-force kapısı: IP başına 5 dakikada en çok 10 deneme.
+const loginAttempts = new Map<string, RateState>();
+const LOGIN_MAX = 10;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
 
 /** İki string'i sabit-zamanlı karşılaştırır (parola sızıntısını önler). */
 function safeEqual(a: string, b: string): boolean {
@@ -15,6 +21,11 @@ function safeEqual(a: string, b: string): boolean {
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/login', async (req, reply) => {
+    // Brute-force kapısı (parola kontrolünden ÖNCE).
+    if (hitLimit(loginAttempts, req.ip, Date.now(), LOGIN_MAX, LOGIN_WINDOW_MS)) {
+      reply.code(429);
+      return { error: 'too_many_attempts' };
+    }
     // Auth yapılandırılmamışsa (yerel dev) login anlamsız.
     if (!env.PANEL_PASSWORD || !env.PANEL_AUTH_SECRET) {
       reply.code(503);
