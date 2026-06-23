@@ -87,17 +87,29 @@ export class OpenAILLM implements ILLMProvider {
     const allowed = intentsForState(req.context.state);
     const schema = buildSchema(allowed);
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      temperature: this.temperature,
-      // Telefon konuşması için 1-2 cümle yeterli; 500 token rahat tampon bırakır.
-      max_tokens: 500,
-      messages,
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: 'collections_turn', strict: true, schema },
-      },
-    });
+    const fallback: LLMStructuredOutput = {
+      say: 'Kusura bakmayın, bir aksaklık oldu. Tekrar eder misiniz?',
+      intent: 'NO_RESPONSE',
+    };
+
+    let completion;
+    try {
+      completion = await this.client.chat.completions.create({
+        model: this.model,
+        temperature: this.temperature,
+        // Telefon konuşması için 1-2 cümle yeterli; 500 token rahat tampon bırakır.
+        max_tokens: 500,
+        messages,
+        response_format: {
+          type: 'json_schema',
+          json_schema: { name: 'collections_turn', strict: true, schema },
+        },
+      });
+    } catch (err) {
+      // Timeout/ağ/rate-limit: turu patlatma, nazik fallback (turnHandler de sarar).
+      logger.warn({ err, callId: req.context.callContext.callId }, 'openai respond request failed');
+      return fallback;
+    }
 
     const choice = completion.choices[0];
     if (!choice?.message?.content) {
@@ -114,12 +126,17 @@ export class OpenAILLM implements ILLMProvider {
       return { say: 'Kusura bakmayın, kısa tekrar eder misiniz?', intent: 'NO_RESPONSE' };
     }
 
-    const raw = JSON.parse(choice.message.content) as RawTurn;
     // Maliyet telemetrisi: token kullanımını taşı (sonuç-bazlı fiyatlama buna dayanır).
     const usage = completion.usage
       ? { tokensIn: completion.usage.prompt_tokens, tokensOut: completion.usage.completion_tokens }
       : undefined;
-    return toStructured(raw, usage);
+    try {
+      const raw = JSON.parse(choice.message.content) as RawTurn;
+      return toStructured(raw, usage);
+    } catch (err) {
+      logger.warn({ err, callId: req.context.callContext.callId }, 'openai respond JSON parse failed');
+      return { ...fallback, ...(usage && { usage }) };
+    }
   }
 
   /**

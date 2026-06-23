@@ -3,6 +3,7 @@ import type {
   CallOutcome,
   ConversationState,
   ILLMProvider,
+  LLMStructuredOutput,
   TranscriptTurn,
 } from '@voice/shared';
 import { LLMStructuredOutputSchema } from '@voice/shared';
@@ -96,20 +97,29 @@ export class TurnHandler {
     this.history.push({ speaker: 'customer', text: userText, at: new Date().toISOString() });
     const state = currentState(this.actor);
 
-    const stream = this.llm.streamReply!({
-      systemPrompt: systemPromptFor(state, this.callContext),
-      context: { callContext: this.callContext, state, history: this.history },
-      userText,
-    });
-
     const sentences: string[] = [];
-    let result = await stream.next();
-    while (!result.done) {
-      sentences.push(result.value);
-      yield result.value; // orchestrator TTS'e basar
-      result = await stream.next();
+    let raw: LLMStructuredOutput;
+    try {
+      const stream = this.llm.streamReply!({
+        systemPrompt: systemPromptFor(state, this.callContext),
+        context: { callContext: this.callContext, state, history: this.history },
+        userText,
+      });
+      let result = await stream.next();
+      while (!result.done) {
+        sentences.push(result.value);
+        yield result.value; // orchestrator TTS'e basar
+        result = await stream.next();
+      }
+      raw = result.value; // generator dönüş değeri = tam yapılandırılmış çıktı
+    } catch (err) {
+      // LLM stream hatası: o ana dek söylenenle (varsa) veya nazik fallback ile
+      // turu sürdür; aramayı patlatma.
+      logger.error({ err, callId: this.callContext.callId }, 'llm stream failed');
+      const reply = sentences.join(' ') || 'Kusura bakmayın, bir aksaklık oldu. Tekrar eder misiniz?';
+      this.recordAgentUtterance(reply);
+      return { reply, shouldHangup: false, state };
     }
-    const raw = result.value; // generator dönüş değeri = tam yapılandırılmış çıktı
 
     const parsed = LLMStructuredOutputSchema.safeParse(raw);
     if (!parsed.success) {
@@ -155,11 +165,21 @@ export class TurnHandler {
     this.history.push({ speaker: 'customer', text: userText, at: new Date().toISOString() });
 
     const state = currentState(this.actor);
-    const raw = await this.llm.respond({
-      systemPrompt: systemPromptFor(state, this.callContext),
-      context: { callContext: this.callContext, state, history: this.history },
-      userText,
-    });
+    let raw: LLMStructuredOutput;
+    try {
+      raw = await this.llm.respond({
+        systemPrompt: systemPromptFor(state, this.callContext),
+        context: { callContext: this.callContext, state, history: this.history },
+        userText,
+      });
+    } catch (err) {
+      // LLM timeout/ağ/sağlayıcı hatası: aramayı patlatma, nazik fallback ile
+      // turu sürdür (phase1 ve orchestrator tutarlı davransın).
+      logger.error({ err, callId: this.callContext.callId }, 'llm respond failed');
+      const reply = 'Kusura bakmayın, bir aksaklık oldu. Tekrar eder misiniz?';
+      this.recordAgentUtterance(reply);
+      return { reply, shouldHangup: false, state };
+    }
 
     const parsed = LLMStructuredOutputSchema.safeParse(raw);
     if (!parsed.success) {
