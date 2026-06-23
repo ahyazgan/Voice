@@ -15,7 +15,11 @@ import { runRetention } from './retention/retention.js';
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });
 
-await app.register(cors, { origin: true });
+// CORS: PANEL_ORIGIN ayarlıysa allowlist (virgülle ayrılmış); yoksa dev'de tüm origin.
+const corsOrigin = env.PANEL_ORIGIN
+  ? env.PANEL_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
+  : true;
+await app.register(cors, { origin: corsOrigin });
 await app.register(sensible);
 
 app.get('/health', async () => ({ ok: true }));

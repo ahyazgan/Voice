@@ -5,6 +5,7 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string(),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   LOG_LEVEL: z.string().default('info'),
+  NODE_ENV: z.string().default('development'),
 
   // Worker → voice-service kontrol WS adresi
   VOICE_WS_URL: z.string().default('ws://localhost:8787'),
@@ -25,6 +26,8 @@ const EnvSchema = z.object({
   PANEL_AUTH_SECRET: z.string().optional(),
   // Token geçerlilik süresi (saat).
   PANEL_TOKEN_TTL_HOURS: z.coerce.number().int().positive().default(12),
+  // Panel CORS allowlist (virgülle ayrılmış origin'ler). Boşsa dev'de tüm origin.
+  PANEL_ORIGIN: z.string().optional(),
 
   // KVKK: ses kaydı rızası politikası. Varsayılan GÜVENLİ (false = kayıt yok).
   // İşletme kayıt saklamak istiyorsa ve hukuki dayanağı varsa true yapar.
@@ -87,3 +90,20 @@ const EnvSchema = z.object({
 });
 
 export const env = EnvSchema.parse(process.env);
+
+// Prod fail-fast: yanlış deploy'da boş secret = sessizce korumasız panel/finalize/
+// control. Üretimde bu sırlar ZORUNLU — eksikse başlatmada patla (açık kalmasın).
+if (env.NODE_ENV === 'production') {
+  const missing = (
+    [
+      ['PANEL_PASSWORD', env.PANEL_PASSWORD],
+      ['PANEL_AUTH_SECRET', env.PANEL_AUTH_SECRET],
+      ['INTERNAL_API_SECRET', env.INTERNAL_API_SECRET],
+    ] as const
+  )
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (missing.length > 0) {
+    throw new Error(`Production'da zorunlu güvenlik env'leri eksik: ${missing.join(', ')}`);
+  }
+}
