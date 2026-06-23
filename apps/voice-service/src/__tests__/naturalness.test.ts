@@ -3,6 +3,8 @@ import {
   detectEmotionalCue,
   responseDelayMs,
   voiceToneForState,
+  applyAffectTone,
+  detectAffect,
   pickThinkingFiller,
   type VoiceTone,
 } from '@voice/shared';
@@ -61,6 +63,53 @@ describe('voiceToneForState', () => {
   });
   it('greeting nötr (tabana eşit)', () => {
     expect(voiceToneForState('greeting', base)).toEqual(base);
+  });
+});
+
+describe('detectAffect', () => {
+  it('öfke ipuçlarını yakalar', () => {
+    for (const t of [
+      'yeter artık beni rahatsız etme',
+      'avukatımla konuşun',
+      'bu ne rezalet',
+      'sinirleniyorum gerçekten',
+      'şikayet edeceğim sizi',
+    ]) {
+      expect(detectAffect(t)).toBe('anger');
+    }
+  });
+  it('zorluk ipuçları hardship döner', () => {
+    expect(detectAffect('işsizim, param yok')).toBe('hardship');
+    expect(detectAffect('babam vefat etti')).toBe('hardship');
+  });
+  it('öfke, zorluğa göre önceliklidir (önce sakinleştir)', () => {
+    expect(detectAffect('param yok, ne istiyorsun benden!')).toBe('anger');
+  });
+  it('nötr girdi neutral', () => {
+    expect(detectAffect('evet yarın öderim')).toBe('neutral');
+    expect(detectAffect('')).toBe('neutral');
+  });
+});
+
+describe('applyAffectTone', () => {
+  const tone: VoiceTone = { stability: 0.5, style: 0.2 };
+  it('öfkede de-eskalasyon: stability artar, style düşer', () => {
+    const t = applyAffectTone(tone, 'anger');
+    expect(t.stability).toBeCloseTo(0.65);
+    expect(t.style).toBeCloseTo(0.05);
+  });
+  it('zorlukta empati: stability düşer, style artar', () => {
+    const t = applyAffectTone(tone, 'hardship');
+    expect(t.stability).toBeCloseTo(0.4);
+    expect(t.style).toBeCloseTo(0.3);
+  });
+  it('neutral değiştirmez', () => {
+    expect(applyAffectTone(tone, 'neutral')).toEqual(tone);
+  });
+  it('0-1 aralığına kırpılır', () => {
+    const t = applyAffectTone({ stability: 0.95, style: 0.02 }, 'anger');
+    expect(t.stability).toBeLessThanOrEqual(1);
+    expect(t.style).toBeGreaterThanOrEqual(0);
   });
 });
 
