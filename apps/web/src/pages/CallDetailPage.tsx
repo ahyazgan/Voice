@@ -51,6 +51,9 @@ export function CallDetailPage() {
             {r.outcome === 'DISPUTE' && r.disputeReason && (
               <span>İtiraz gerekçesi: <i>{r.disputeReason}</i></span>
             )}
+            {r.outcome === 'CALLBACK_REQUESTED' && r.callbackAt && (
+              <span>Geri arama: <b>{formatDate(r.callbackAt)}</b></span>
+            )}
           </div>
         </div>
       )}

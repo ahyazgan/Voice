@@ -82,12 +82,24 @@ describe('confirm durumunda fikir değişikliği', () => {
     expect(ctx.promisedDate).toBeNull();
   });
 
-  it('geri arama → CALLBACK_REQUESTED + söz temizlenir', () => {
+  it('geri arama → CALLBACK_REQUESTED + söz temizlenir + callbackAt saklanır', () => {
     const actor = reachConfirm();
     actor.send({ type: 'ASKS_CALLBACK', callbackAt: '2026-08-01' });
     const ctx = actor.getSnapshot().context;
     expect(ctx.outcome).toBe('CALLBACK_REQUESTED');
     expect(ctx.promisedAmount).toBeNull();
+    expect(ctx.callbackAt).toBe('2026-08-01');
+  });
+});
+
+describe('geri arama tarihi (callbackAt) taşınması', () => {
+  it('remind`de ASKS_CALLBACK callbackAt`i context`e yazar', () => {
+    const actor = startConversation(debtor);
+    actor.send({ type: 'IDENTITY_CONFIRMED' });
+    actor.send({ type: 'ASKS_CALLBACK', callbackAt: '2026-07-30' });
+    const ctx = actor.getSnapshot().context;
+    expect(ctx.outcome).toBe('CALLBACK_REQUESTED');
+    expect(ctx.callbackAt).toBe('2026-07-30');
   });
 });
 

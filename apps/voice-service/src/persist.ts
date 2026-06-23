@@ -7,6 +7,7 @@ export interface FinalizePayload {
   outcome: CallOutcome;
   promisedAmount?: number;
   promisedDate?: string;
+  callbackAt?: string;
   disputeReason?: string;
   recordingUrl?: string;
   /** KVKK: rıza yoksa recordingUrl asla gönderilmez (default false = güvenli). */
@@ -39,6 +40,7 @@ export async function postFinalize(p: FinalizePayload): Promise<void> {
     outcome: p.outcome,
     promisedAmount: p.promisedAmount,
     promisedDate: p.promisedDate,
+    callbackAt: p.callbackAt,
     disputeReason: p.disputeReason,
     recordingUrl,
     durationSec: p.summary.durationSec,

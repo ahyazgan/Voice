@@ -79,6 +79,7 @@ export async function startPlatformCall(deps: {
         consentToRecord: deps.callContext.consentToRecord,
         ...(turn.promisedAmount !== undefined && { promisedAmount: turn.promisedAmount }),
         ...(turn.promisedDate !== undefined && { promisedDate: turn.promisedDate }),
+        ...(turn.callbackAt !== undefined && { callbackAt: turn.callbackAt }),
         ...(turn.disputeReason !== undefined && { disputeReason: turn.disputeReason }),
         summary,
         transcript: turn.transcript,

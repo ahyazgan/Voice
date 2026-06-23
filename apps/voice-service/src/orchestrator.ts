@@ -244,6 +244,7 @@ export class Orchestrator {
         consentToRecord: this.opts.callContext.consentToRecord,
         ...(this.turn.promisedAmount !== undefined && { promisedAmount: this.turn.promisedAmount }),
         ...(this.turn.promisedDate !== undefined && { promisedDate: this.turn.promisedDate }),
+        ...(this.turn.callbackAt !== undefined && { callbackAt: this.turn.callbackAt }),
         ...(this.turn.disputeReason !== undefined && { disputeReason: this.turn.disputeReason }),
         summary,
         transcript: this.turn.transcript,

@@ -31,6 +31,7 @@ export interface CallResult {
   outcome: CallOutcome;
   promisedAmount: number | null; // kuruş
   promisedDate: string | null;
+  callbackAt: string | null;
   disputeReason: string | null;
   recordingUrl: string | null;
   costTRY: number; // kuruş

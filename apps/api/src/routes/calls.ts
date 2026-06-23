@@ -43,6 +43,7 @@ const FinalizeInput = z.object({
   ]),
   promisedAmount: z.number().int().nonnegative().optional(),
   promisedDate: z.string().datetime().optional(),
+  callbackAt: z.string().datetime().optional(),
   disputeReason: z.string().optional(),
   recordingUrl: z.string().url().optional(),
 
@@ -192,6 +193,7 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           outcome: body.outcome,
           promisedAmount: body.promisedAmount ?? null,
           promisedDate: body.promisedDate ? new Date(body.promisedDate) : null,
+          callbackAt: body.callbackAt ? new Date(body.callbackAt) : null,
           disputeReason: body.disputeReason ?? null,
           recordingUrl: body.recordingUrl ?? null,
           costTRY: totalCostTRY,
@@ -208,6 +210,7 @@ export async function callsRoutes(app: FastifyInstance): Promise<void> {
           outcome: body.outcome,
           promisedAmount: body.promisedAmount ?? null,
           promisedDate: body.promisedDate ? new Date(body.promisedDate) : null,
+          callbackAt: body.callbackAt ? new Date(body.callbackAt) : null,
           disputeReason: body.disputeReason ?? null,
           recordingUrl: body.recordingUrl ?? null,
           costTRY: totalCostTRY,

@@ -65,6 +65,11 @@ export class TurnHandler {
     return this.actor.getSnapshot().context.disputeReason ?? undefined;
   }
 
+  /** İstenen geri-arama zamanı (CALLBACK_REQUESTED outcome'unda). */
+  get callbackAt(): string | undefined {
+    return this.actor.getSnapshot().context.callbackAt ?? undefined;
+  }
+
   get state(): ConversationState {
     return currentState(this.actor);
   }

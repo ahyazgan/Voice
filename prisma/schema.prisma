@@ -98,6 +98,8 @@ model CallResult {
   outcome         CallOutcome
   promisedAmount  Int?
   promisedDate    DateTime?
+  // CALLBACK_REQUESTED outcome'unda müşterinin istediği geri-arama zamanı.
+  callbackAt      DateTime?
   disputeReason   String?
   recordingUrl    String?
 
