@@ -32,6 +32,7 @@ interface CollectionsContext {
   identityVerified: boolean;
   attemptCount: number;
   disputeReason: string | null;
+  callbackAt: string | null;
 }
 
 // --- LLM'in üretebileceği INTENT'ler (durum geçiş olayları) ------------------
@@ -73,6 +74,10 @@ export function createCollectionsMachine(debtor: Debtor) {
           ? { disputeReason: event.reason ?? 'belirtilmedi' }
           : {},
       ),
+      // Geri-arama zamanını sakla (CALLBACK_REQUESTED outcome'u ile finalize'a taşınır).
+      recordCallback: assign(({ event }) =>
+        event.type === 'ASKS_CALLBACK' ? { callbackAt: event.callbackAt ?? null } : {},
+      ),
       bumpAttempt: assign(({ context }) => ({ attemptCount: context.attemptCount + 1 })),
       setOutcome: assign(({ event }) => ({ outcome: outcomeForEvent(event) })),
       // Söz iptali: müşteri teyit aşamasında vazgeçerse önceden kaydedilmiş
@@ -104,6 +109,7 @@ export function createCollectionsMachine(debtor: Debtor) {
       identityVerified: false,
       attemptCount: 0,
       disputeReason: null,
+      callbackAt: null,
     },
     states: {
       // --- 1. SELAM + KAYIT RIZASI -------------------------------------------
@@ -120,7 +126,7 @@ export function createCollectionsMachine(debtor: Debtor) {
         on: {
           IDENTITY_CONFIRMED: { target: 'remind', actions: 'verifyIdentity' },
           WRONG_PERSON: { target: 'closing', actions: 'setOutcome' },
-          ASKS_CALLBACK: { target: 'closing', actions: 'setOutcome' },
+          ASKS_CALLBACK: { target: 'closing', actions: ['recordCallback', 'setOutcome'] },
           GETS_ANGRY: 'escalate',
           NO_RESPONSE: 'closing',
         },
@@ -140,7 +146,7 @@ export function createCollectionsMachine(debtor: Debtor) {
           PARTIAL_OR_PLAN: { target: 'negotiate', actions: 'recordPromise' },
           DISPUTES_DEBT: { target: 'escalate', actions: ['recordDispute', 'setOutcome'] },
           REFUSES: { target: 'negotiate', actions: 'bumpAttempt' },
-          ASKS_CALLBACK: { target: 'closing', actions: 'setOutcome' },
+          ASKS_CALLBACK: { target: 'closing', actions: ['recordCallback', 'setOutcome'] },
           GETS_ANGRY: 'escalate',
         },
       },
@@ -193,7 +199,7 @@ export function createCollectionsMachine(debtor: Debtor) {
           PARTIAL_OR_PLAN: [{ guard: 'hasAmountOrDate', actions: 'recordPromise' }],
           DISPUTES_DEBT: { target: 'escalate', actions: ['recordDispute', 'setOutcome'] },
           REFUSES: { target: 'closing', actions: 'refusePromise' },
-          ASKS_CALLBACK: { target: 'closing', actions: ['clearPromise', 'setOutcome'] },
+          ASKS_CALLBACK: { target: 'closing', actions: ['recordCallback', 'clearPromise', 'setOutcome'] },
           GETS_ANGRY: 'escalate',
           // NO_RESPONSE: stay — teyit isteği tekrar sorulabilir.
         },
