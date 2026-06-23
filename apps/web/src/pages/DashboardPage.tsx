@@ -91,9 +91,9 @@ export function DashboardPage() {
       <div className="card">
         <strong>Maliyet</strong>
         <div className="kpis" style={{ marginTop: 10 }}>
-          <Kpi label="Toplam maliyet" value={formatKurus(data.cost.totalTRY)} />
-          <Kpi label="Arama başına" value={formatKurus(data.cost.perCallTRY)} />
-          <Kpi label="Söz başına" value={formatKurus(data.cost.perPromiseTRY)} />
+          <Kpi label="Toplam maliyet" value={formatKurus(data.cost.totalKurus)} />
+          <Kpi label="Arama başına" value={formatKurus(data.cost.perCallKurus)} />
+          <Kpi label="Söz başına" value={formatKurus(data.cost.perPromiseKurus)} />
         </div>
       </div>
 

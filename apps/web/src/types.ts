@@ -84,11 +84,11 @@ export interface Stats {
   totals: { calls: number; completed: number; failed: number; reached: number };
   rates: { reachRate: number | null; promiseRate: number | null };
   outcomes: Record<CallOutcome, number>;
-  promise: { count: number; totalAmount: number }; // totalAmount: kuruş
+  promise: { count: number; totalAmount: number }; // kuruş
   cost: {
-    totalTRY: number; // kuruş
-    perCallTRY: number | null; // kuruş
-    perPromiseTRY: number | null; // kuruş
+    totalKurus: number;
+    perCallKurus: number | null;
+    perPromiseKurus: number | null;
   };
   quality: {
     avgDurationSec: number | null;

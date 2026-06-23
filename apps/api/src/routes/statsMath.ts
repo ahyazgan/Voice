@@ -32,8 +32,9 @@ export interface StatsResponse {
   totals: { calls: number; completed: number; failed: number; reached: number };
   rates: { reachRate: number | null; promiseRate: number | null };
   outcomes: Record<Outcome, number>;
+  // Tüm para alanları KURUŞ (int) — invariant. Panel formatKurus ile gösterir.
   promise: { count: number; totalAmount: number };
-  cost: { totalTRY: number; perCallTRY: number | null; perPromiseTRY: number | null };
+  cost: { totalKurus: number; perCallKurus: number | null; perPromiseKurus: number | null };
   quality: {
     avgDurationSec: number | null;
     avgResponseMs: number | null;
@@ -75,9 +76,9 @@ export function assembleStats(raw: RawStats): StatsResponse {
       totalAmount: raw.promisedTotalKurus,
     },
     cost: {
-      totalTRY: raw.totalCostKurus,
-      perCallTRY: resultsTotal > 0 ? Math.round(raw.totalCostKurus / resultsTotal) : null,
-      perPromiseTRY: raw.promiseCount > 0 ? Math.round(raw.totalCostKurus / raw.promiseCount) : null,
+      totalKurus: raw.totalCostKurus,
+      perCallKurus: resultsTotal > 0 ? Math.round(raw.totalCostKurus / resultsTotal) : null,
+      perPromiseKurus: raw.promiseCount > 0 ? Math.round(raw.totalCostKurus / raw.promiseCount) : null,
     },
     quality: {
       avgDurationSec: round(raw.avgDurationSec),
