@@ -43,17 +43,21 @@ Bunlar doğrudan "para hatası": panel/muhasebe yanlış kayıt görür.
   transcript text, iç içe dahil) hem api hem voice-service logger'ında; BullMQ
   payload zaten yalnızca ID taşıyor (`CallJobData`). Davranış testi: `piiRedact.test.ts`.
 
-## Katman 2 — Güvenlik (üretime çıkmadan zorunlu) 🟠
+## Katman 2 — Güvenlik (üretime çıkmadan zorunlu) 🟠 ✅ TAMAM (1 deploy-zamanı işi hariç)
 
-- [ ] **Kontrol WS auth'u** (`voice-service/server.ts:91,156`): `/control` upgrade'inde
-  paylaşılan sır/token + `msg.debtor` için zod doğrulama (yetkisiz arama başlatma /
-  toll fraud açığı).
-- [ ] **Gelen webhook imza doğrulaması**: Retell signature header, Telnyx Ed25519,
-  Vapi secret (`voice-service/server.ts:38,78,147`).
-- [ ] **Prod fail-fast**: `NODE_ENV=production` iken boş `PANEL_AUTH_SECRET`/
-  `INTERNAL_API_SECRET`/`PANEL_PASSWORD` → `config.ts` parse hatası.
-- [ ] **/login rate-limit** (`@fastify/rate-limit`) + **CORS allowlist**
-  (`server.ts:17` `origin` → `PANEL_ORIGIN`).
+- [x] **Kontrol WS auth'u**: `controlAuthorized` (INTERNAL_API_SECRET, sabit-zamanlı)
+  + `DebtorSchema.safeParse(msg.debtor)` zod doğrulaması (`voice-service/server.ts`).
+- [x] **Prod fail-fast**: api `config.ts` (PANEL_PASSWORD/PANEL_AUTH_SECRET/
+  INTERNAL_API_SECRET) **+ voice-service `requireProductionSecrets`** (INTERNAL_API_SECRET
+  + INBOUND_WS_TOKEN) — production'da eksik sır = başlatmada hata.
+- [x] **/login rate-limit** (`hitLimit` — IP başına 5dk'da 10 deneme, parola
+  kontrolünden ÖNCE) + **CORS allowlist** (`PANEL_ORIGIN`).
+- [~] **Gelen WS auth**: `?token=` paylaşılan sır gate'i (`INBOUND_WS_TOKEN`) +
+  Vapi `x-vapi-secret` (`VAPI_SERVER_SECRET`) **var**.
+  - [ ] **Tam kriptografik imza (deploy-zamanı)**: Retell `x-retell-signature` (HMAC)
+    + Telnyx Ed25519 — sağlayıcının GERÇEK imza şeması + public key'i gerektirir.
+    Yanlış şema canlı trafiği reddedeceğinden, token gate interim olarak korunur;
+    sağlayıcı entegrasyonu canlıya alınırken eklenecek.
 
 ## Katman 3 — Gerçek-zamanlı ses doğruluğu (Faz 2'nin canı) 🟠
 
