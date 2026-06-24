@@ -64,6 +64,10 @@ export async function processCallJob(data: CallJobData): Promise<void> {
     return;
   }
 
+  // Cross-call memory: borçlunun bu aramadan ÖNCEKİ son tamamlanmış araması.
+  // Best-effort — hata olursa hatırlama olmadan devam et (aramayı ASLA bozma).
+  const priorCall = await loadPriorCall(call.debtorId, call.id);
+
   try {
     await runVoiceCall({
       callId: call.id,
@@ -76,6 +80,7 @@ export async function processCallJob(data: CallJobData): Promise<void> {
         dueDate: call.debtor.dueDate.toISOString(),
         ...(call.debtor.invoiceRef != null ? { invoiceRef: call.debtor.invoiceRef } : {}),
       },
+      ...(priorCall ? { priorCall } : {}),
     });
   } catch (err) {
     // BullMQ retry edecek; failed final attempt'te status FAILED'e çekilir
@@ -85,6 +90,13 @@ export async function processCallJob(data: CallJobData): Promise<void> {
     });
     throw err;
   }
+}
+
+interface PriorCallSummary {
+  at: string;
+  outcome: string; // CallOutcome; voice-service zod ile doğrular
+  promisedAmount?: number;
+  promisedDate?: string;
 }
 
 interface RunArgs {
@@ -98,6 +110,45 @@ interface RunArgs {
     dueDate: string;
     invoiceRef?: string;
   };
+  priorCall?: PriorCallSummary;
+}
+
+/**
+ * Borçlunun verilen aramadan ÖNCEKİ son TAMAMLANMIŞ (outcome'lu) aramasının özeti.
+ * cross-call memory için; voice-service prompt'a doğal "hatırlama" notu işler.
+ * @@index([debtorId, createdAt]) bu sorguyu karşılar. Best-effort: hata→undefined.
+ */
+async function loadPriorCall(
+  debtorId: string,
+  currentCallId: string,
+): Promise<PriorCallSummary | undefined> {
+  try {
+    const prior = await prisma.call.findFirst({
+      where: {
+        debtorId,
+        status: 'COMPLETED',
+        outcome: { not: null },
+        id: { not: currentCallId },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { result: true },
+    });
+    if (!prior || prior.outcome == null) return undefined;
+    return {
+      at: (prior.endedAt ?? prior.startedAt ?? prior.createdAt).toISOString(),
+      outcome: prior.outcome,
+      ...(prior.result?.promisedAmount != null
+        ? { promisedAmount: prior.result.promisedAmount }
+        : {}),
+      ...(prior.result?.promisedDate != null
+        ? { promisedDate: prior.result.promisedDate.toISOString() }
+        : {}),
+    };
+  } catch {
+    // Best-effort: cross-call memory bir "nice-to-have"; sorgu hatası aramayı
+    // bozmamalı. Hatırlama olmadan sessizce devam (processor'da logger yok).
+    return undefined;
+  }
 }
 
 function runVoiceCall(args: RunArgs): Promise<void> {
@@ -133,6 +184,8 @@ function runVoiceCall(args: RunArgs): Promise<void> {
           // anonsu her halükârda çalar; bu yalnızca kaydın saklanıp
           // saklanmayacağını belirler. Hardcode 'false' yerine yapılandırılabilir.
           consent: env.DEFAULT_RECORDING_CONSENT,
+          // cross-call memory: önceki arama özeti (varsa). voice-service zod ile doğrular.
+          ...(args.priorCall ? { priorCall: args.priorCall } : {}),
         }),
       );
     });

@@ -20,6 +20,14 @@ export const CallOutcomeSchema = z.enum([
   'REFUSED',
 ]);
 
+/** Önceki arama özeti — cross-call memory (start frame'inde worker → voice-service). */
+export const PriorCallSummarySchema = z.object({
+  at: z.string().datetime(),
+  outcome: CallOutcomeSchema,
+  promisedAmount: z.number().int().nonnegative().optional(),
+  promisedDate: z.string().datetime().optional(),
+});
+
 export const LLMIntentSchema = z.enum([
   'IDENTITY_CONFIRMED',
   'WRONG_PERSON',

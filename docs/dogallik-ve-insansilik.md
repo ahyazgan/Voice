@@ -104,8 +104,10 @@ yol haritasında dursun:
   - [x] **Ses tarafı (yapıldı):** `CallContext.priorCall` + prompt'a doğal "hatırlama"
     notu (`buildRecallNote`); WRONG_NUMBER'da hatırlatma yok (KVKK). İkinci aramada
     "geçen görüşmemizde ... demiştiniz" gibi doğal değinme.
-  - [ ] **Veri tarafı (sonra):** API'nin borçlunun son tamamlanmış aramasından
-    `priorCall`'u doldurması (DB sorgusu — Prisma gerektirir).
+  - [x] **Veri tarafı (yapıldı):** API processor borçlunun son tamamlanmış
+    (outcome'lu) aramasını `@@index([debtorId, createdAt])` ile sorgular
+    (`loadPriorCall`), start frame'ine `priorCall` koyar; voice-service zod ile
+    doğrulayıp CallContext'e işler. Best-effort: sorgu hatası aramayı bozmaz.
 - **Gelişmiş turn-taking modeli.**
   - [x] **Barge-in inceltme (yapıldı):** `isLikelyBargeIn` — partial'da körü körüne
     kesme yok; boş/gürültü/backchannel'da AI susmaz (yanlış-pozitif kesme önlenir).
