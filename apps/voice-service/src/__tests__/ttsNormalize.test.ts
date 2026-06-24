@@ -30,6 +30,13 @@ describe('normalizeForTTS — para', () => {
     expect(normalizeForTTS('500 ₺')).toBe('beş yüz lira');
     expect(normalizeForTTS('75 lira')).toBe('yetmiş beş lira');
   });
+  it('virgülsüz binlik nokta gruplaması doğru okunur (1.250 = bin iki yüz elli, 1,25 DEĞİL)', () => {
+    expect(normalizeForTTS('1.250 TL')).toBe('bin iki yüz elli lira');
+    expect(normalizeForTTS('1.250.000 TL')).toBe('bir milyon iki yüz elli bin lira');
+  });
+  it('nokta+2 hane ondalık olarak korunur', () => {
+    expect(normalizeForTTS('1250.50 TL')).toBe('bin iki yüz elli lira elli kuruş');
+  });
 });
 
 describe('normalizeForTTS — tarih', () => {

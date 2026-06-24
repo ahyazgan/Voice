@@ -61,8 +61,13 @@ function readDigits(digits: string): string {
 function parseTrAmount(raw: string): { lira: number; kurus: number } | null {
   let s = raw.trim();
   if (s.includes(',')) {
-    // Türk biçimi: nokta binlik, virgül ondalık.
+    // Türk biçimi: nokta binlik, virgül ondalık. "1.250,50" → "1250.50".
     s = s.replace(/\./g, '').replace(',', '.');
+  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(s)) {
+    // Virgül yok ama nokta BİNLİK gruplaması ("1.250", "1.250.000") → noktaları at.
+    // Aksi halde Number("1.250") = 1.25 olur (para hatası). "1250.50" gibi ondalık
+    // (nokta + 2 hane) bu desene uymaz, dokunmadan ondalık olarak okunur.
+    s = s.replace(/\./g, '');
   }
   const n = Number(s);
   if (!Number.isFinite(n)) return null;

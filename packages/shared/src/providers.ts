@@ -6,6 +6,7 @@ import type {
   LLMStructuredOutput,
   TranscriptTurn,
 } from './types.js';
+import type { Affect } from './naturalness.js';
 
 // ---------- Telephony ----------
 
@@ -44,7 +45,19 @@ export interface STTOptions {
 
 export type STTEvent =
   | { type: 'partial'; text: string }
-  | { type: 'final'; text: string; durationMs: number };
+  | {
+      type: 'final';
+      text: string;
+      durationMs: number;
+      /**
+       * AKUSTİK DUYGU (opsiyonel): sağlayıcı sesin KENDİSİNDEN (prozodi/ton)
+       * öfke/stres çıkarabiliyorsa burada verir; orchestrator bunu metin-tabanlı
+       * tahmine TERCİH eder. Henüz hiçbir STT sağlayıcımız doldurmuyor (Deepgram
+       * sinyal vermiyor) — kapalı-döngü duygu uyarlamasının uçtan uca tesisatı
+       * hazır; sağlayıcı desteği gelince tek satırla devreye girer.
+       */
+      affectHint?: Affect;
+    };
 
 export interface STTSession {
   push(chunk: AudioChunk): void;

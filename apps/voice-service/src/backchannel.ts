@@ -38,3 +38,15 @@ export function isBackchannel(text: string): boolean {
   if (words.length > 2) return false; // 2 kelimeden uzun → gerçek konuşma
   return BACKCHANNEL_WORDS.has(n) || words.every((w) => BACKCHANNEL_WORDS.has(w));
 }
+
+/**
+ * Bu PARTIAL gerçek bir barge-in (AI'ı kesme niyeti) mi? AI konuşurken her partial'da
+ * körü körüne kesmek yanlış-pozitif üretir: müşteri "hı hı" derken veya tek heceli
+ * gürültüde AI susmamalı. Gerçek kesme = boş değil VE backchannel değil.
+ * (Turn-taking inceltme: "kısa pencere/backchannel-sonrası karar" — docs §3.)
+ */
+export function isLikelyBargeIn(partialText: string): boolean {
+  const n = normalize(partialText);
+  if (!n) return false; // boş/gürültü → kesme değil
+  return !isBackchannel(n);
+}

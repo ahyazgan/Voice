@@ -4,3 +4,4 @@ export * from './providers.js';
 export * from './pii.js';
 export * from './ttsNormalize.js';
 export * from './naturalness.js';
+export * from './prosody.js';
