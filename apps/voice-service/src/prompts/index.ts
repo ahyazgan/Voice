@@ -12,7 +12,7 @@
 // Provider tarafında structured-output (JSON mode / tool call) ile bağlanır.
 // =============================================================================
 
-import type { ConversationState, Debtor, LLMIntent } from '@voice/shared';
+import type { ConversationState, Debtor, LLMIntent, PriorCallSummary } from '@voice/shared';
 import { env } from '../config.js';
 
 // --- Tüm durumlarda geçerli ANA KARAKTER + KURALLAR -------------------------
@@ -151,13 +151,45 @@ export function intentsForState(state: ConversationState): readonly LLMIntent[] 
   return STATE_GUIDE[state].intents;
 }
 
+// --- Cross-call memory: önceki aramayı doğal bir "hatırlama" notuna çevir ----
+// İnsan unutmaz; ikinci aramada geçmişe değinmek güveni ve etkiyi artırır. Notu
+// PROMPT'a koyarız (LLM doğal cümleye döker), say'i biz YAZMAYIZ. Yanlış kişiye
+// (WRONG_NUMBER) geçmiş hatırlatmak KVKK/rahatsızlık riski → onu atlarız.
+function buildRecallNote(prior: PriorCallSummary, debtor: Debtor): string | null {
+  const when = formatDate(prior.at);
+  switch (prior.outcome) {
+    case 'PROMISE_TO_PAY': {
+      const amt = prior.promisedAmount != null ? formatTRY(prior.promisedAmount) : null;
+      const due = prior.promisedDate ? formatDate(prior.promisedDate) : null;
+      const detail = amt && due ? ` (${amt}, ${due})` : amt ? ` (${amt})` : due ? ` (${due})` : '';
+      return `GEÇMİŞ: ${debtor.fullName} ile ${when} görüşülmüş; ödeme sözü alınmıştı${detail}. ` +
+        `Uygun düşerse doğal bir dille hatırlat ("geçen görüşmemizde ... demiştiniz gibi"); ` +
+        `söz tutulmadıysa suçlamadan, nazikçe değin.`;
+    }
+    case 'CALLBACK_REQUESTED':
+      return `GEÇMİŞ: ${when} görüşülmüş, sizden tekrar aramanız istenmişti. Bunu doğal bir dille hatırlat.`;
+    case 'DISPUTE':
+      return `GEÇMİŞ: ${when} bu borca itiraz edilmişti. Konuyu biliyormuş gibi davran; tartışma açma, gerekirse yetkiliye yönlendir.`;
+    case 'REFUSED':
+      return `GEÇMİŞ: ${when} görüşülmüş, ödeme yapılmamıştı. Baskı KURMA; sıcak ve sabırlı bir yeni başlangıç yap.`;
+    default:
+      return null; // NO_ANSWER / WRONG_NUMBER / ESCALATED → güvenli: hatırlatma yok
+  }
+}
+
 // --- Orchestrator/TurnHandler'ın çağırdığı fonksiyon ------------------------
-export function promptForState(state: ConversationState, debtor: Debtor): string {
+export function promptForState(
+  state: ConversationState,
+  debtor: Debtor,
+  priorCall?: PriorCallSummary,
+): string {
   const guide = STATE_GUIDE[state];
   const intentList = `İzin verilen intent değerleri (SADECE bunlardan biri): ${guide.intents.join(', ')}.`;
+  const recall = priorCall ? buildRecallNote(priorCall, debtor) : null;
 
   return [
     SYSTEM_BASE(debtor),
+    ...(recall ? [`\n# ${recall}`] : []),
     `\n# MEVCUT DURUM: ${state}`,
     `# GÖREVİN: ${guide.task.replace('{fullName}', debtor.fullName)}`,
     `# ${intentList}`,
@@ -167,8 +199,10 @@ export function promptForState(state: ConversationState, debtor: Debtor): string
 }
 
 // Geriye dönük isim (orchestrator/turnHandler eski adı arayabilir).
-export const systemPromptFor = (state: ConversationState, ctx: { debtor: Debtor }): string =>
-  promptForState(state, ctx.debtor);
+export const systemPromptFor = (
+  state: ConversationState,
+  ctx: { debtor: Debtor; priorCall?: PriorCallSummary },
+): string => promptForState(state, ctx.debtor, ctx.priorCall);
 
 // Rıza anonsu: KVKK gereği atlanamaz ama hukuki-robotik değil, insan ağzından.
 // İsimli tanıtım + sade rıza ifadesi. (Sabit metin — TTS normalizasyonundan geçer.)

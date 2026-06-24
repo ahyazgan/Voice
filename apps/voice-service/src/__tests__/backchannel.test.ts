@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isBackchannel } from '../backchannel.js';
+import { isBackchannel, isLikelyBargeIn } from '../backchannel.js';
 
 describe('isBackchannel', () => {
   it('kısa onaylar backchannel', () => {
@@ -23,5 +23,19 @@ describe('isBackchannel', () => {
   it('tek anlamlı kelime backchannel değil', () => {
     expect(isBackchannel('ödemem')).toBe(false);
     expect(isBackchannel('itiraz')).toBe(false);
+  });
+});
+
+describe('isLikelyBargeIn', () => {
+  it('gerçek kesme niyeti → true', () => {
+    expect(isLikelyBargeIn('alo kimsiniz')).toBe(true);
+    expect(isLikelyBargeIn('dur bir saniye')).toBe(true);
+    expect(isLikelyBargeIn('ödemem')).toBe(true);
+  });
+  it('backchannel/boş/gürültü → false (AI susmaz)', () => {
+    expect(isLikelyBargeIn('hı hı')).toBe(false);
+    expect(isLikelyBargeIn('tamam')).toBe(false);
+    expect(isLikelyBargeIn('')).toBe(false);
+    expect(isLikelyBargeIn('   ')).toBe(false);
   });
 });

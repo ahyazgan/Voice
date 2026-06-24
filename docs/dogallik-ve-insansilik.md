@@ -86,19 +86,30 @@
 Bunlar daha çok mühendislik, veri veya Faz 2/3 olgunluğu ister. Şimdi değil ama
 yol haritasında dursun:
 
-- **Dinamik prozodi/SSML motoru.** Sabit ayar değil; içeriğe göre `<break>`,
-  emphasis, rate üreten katman. Vurguyu (focus) tutara ve tarihe koyan işaretleme.
+- **Dinamik prozodi/SSML motoru.**
+  - [x] **Teslimat duraklaması (yapıldı):** `paceForDelivery` para/tarih/yüzde
+    figürlerinin ardına doğal duraklama (virgül) koyar → dinleyen yazabilsin;
+    `normalizeForTTS`'ten önce çalışır. (Yan ürün: virgülsüz binlik "1.250"
+    para ayrıştırma hatası da düzeltildi.)
+  - [ ] **Tam SSML motoru (sonra):** içeriğe göre `<break time>`, emphasis, rate;
+    vurguyu (focus) tutara/tarihe koyan işaretleme. Model/8kHz desteği doğrulanmalı.
 - **Kapalı-döngü duygu uyarlaması.**
-  - [x] **Metin-tabanlı ilk katman (yapıldı):** `detectAffect` müşteri turunun
-    duygulanımını (anger / hardship / neutral) metinden çıkarır; `applyAffectTone`
-    durum tonunun üzerine biner — öfkede de-eskalasyon (sakin/sabit, bekletme yok),
-    zorlukta empati (sıcak + mikro-pause). Öncelik anger > hardship.
-  - [ ] **Akustik katman (sonra):** STT prozodisinden (ses tonu/yükseklik) öfke/stres
-    ölçümü — kelime değil sesin KENDİSİ. ASR'nin duygu sinyali gerektirir.
-- **Cross-call memory / kişiselleştirme.** İkinci aramada borçluyu hatırla
-  ("geçen hafta 15'inde diye konuşmuştuk"). Tutarlı kişilik + güven.
-- **Gelişmiş turn-taking modeli.** Sadece endpointing değil; predictive endpointing,
-  overlap toleransı, "yarıda kesilince kaldığı yerden nazik devam".
+  - [x] **Metin-tabanlı katman (yapıldı):** `detectAffect` + `applyAffectTone` —
+    öfkede de-eskalasyon (sakin/sabit, bekletme yok), zorlukta empati. anger > hardship.
+  - [x] **Uçtan uca tesisat (yapıldı):** `STTEvent.final.affectHint` kanalı açık;
+    orchestrator akustik sinyali metne TERCİH eder.
+  - [ ] **Sağlayıcı sinyali (sonra):** STT'nin sesin KENDİSİNDEN öfke/stres üretmesi
+    (Deepgram bugün vermiyor); geldiğinde tek satırla devreye girer.
+- **Cross-call memory / kişiselleştirme.**
+  - [x] **Ses tarafı (yapıldı):** `CallContext.priorCall` + prompt'a doğal "hatırlama"
+    notu (`buildRecallNote`); WRONG_NUMBER'da hatırlatma yok (KVKK). İkinci aramada
+    "geçen görüşmemizde ... demiştiniz" gibi doğal değinme.
+  - [ ] **Veri tarafı (sonra):** API'nin borçlunun son tamamlanmış aramasından
+    `priorCall`'u doldurması (DB sorgusu — Prisma gerektirir).
+- **Gelişmiş turn-taking modeli.**
+  - [x] **Barge-in inceltme (yapıldı):** `isLikelyBargeIn` — partial'da körü körüne
+    kesme yok; boş/gürültü/backchannel'da AI susmaz (yanlış-pozitif kesme önlenir).
+  - [ ] **Predictive endpointing / overlap (sonra):** gerçek ses akışı (Faz 2) gerektirir.
 - **Comfort noise / ortam uyarlaması.** Tam dijital sessizlik "hat düştü mü"
   hissi verir; hafif doğal arka plan. Gürültülü müşteride yavaşla/tekrar teklif et.
 - **Nefes & mikro-prozodi (v3 audio tags).** 8kHz'de dikkatli; nefes/duraklama
@@ -117,5 +128,3 @@ yol haritasında dursun:
   buradaki prompt + normalizasyon + tell envanteri yine SENDE kalır.
 - Önerilen sıra: §1 hızlı kazanımlar → §1 algı sıçraması → §2 envanterden kalanlar
   → §3 ileri katman.
-</content>
-</invoke>

@@ -57,11 +57,29 @@ export type ConversationState =
   | 'escalate'
   | 'closing';
 
+/**
+ * Önceki aramanın özeti — "cross-call memory". Aynı borçluyla ikinci kez
+ * görüşülürken AI'ın doğal bir şekilde geçmişe değinmesi için (insan unutmaz):
+ * "geçen hafta 15'inde ödeme yapacağınızı konuşmuştuk". API, borçlunun son
+ * tamamlanmış aramasından doldurur; voice-service yalnızca TÜKETİR (prompt'a işler).
+ */
+export interface PriorCallSummary {
+  /** Son aramanın tarihi (ISO). */
+  at: string;
+  outcome: CallOutcome;
+  /** O aramada alınan ödeme sözü tutarı (kuruş), varsa. */
+  promisedAmount?: number;
+  /** O aramada alınan ödeme sözü tarihi (ISO), varsa. */
+  promisedDate?: string;
+}
+
 export interface CallContext {
   callId: string;
   debtor: Debtor;
   startedAt: string;
   consentToRecord: boolean;
+  /** Bu borçluyla önceki görüşmenin özeti (varsa). Doğal "hatırlama" için. */
+  priorCall?: PriorCallSummary;
 }
 
 /**

@@ -8,6 +8,7 @@ import type {
 } from '@voice/shared';
 import {
   normalizeForTTS,
+  paceForDelivery,
   voiceToneForState,
   applyAffectTone,
   detectAffect,
@@ -16,7 +17,7 @@ import {
 import type { ConversationState, Affect } from '@voice/shared';
 import { CallTelemetry, logger } from './telemetry.js';
 import { getCostRates, getVoiceToneBase, env } from './config.js';
-import { isBackchannel } from './backchannel.js';
+import { isBackchannel, isLikelyBargeIn } from './backchannel.js';
 import { TurnHandler, type TurnDecision } from './turnHandler.js';
 import { CONSENT_ANNOUNCEMENT } from './prompts/index.js';
 import { postFinalize } from './persist.js';
@@ -86,8 +87,9 @@ export class Orchestrator {
           this.turnOpen = true;
           this.telemetry.mark('caller_speaking');
         }
-        if (this.ttsPlayback) {
-          // barge-in: ZORUNLU. <200ms hedef.
+        if (this.ttsPlayback && isLikelyBargeIn(evt.text)) {
+          // barge-in: ZORUNLU ama körü körüne DEĞİL. Yalnızca GERÇEK kesme niyetinde
+          // (boş/gürültü/backchannel partial'da AI susmaz — yanlış-pozitif turn-taking'i bozar).
           // 1) Bizim TTS stream'imizi kes — yeni paket göndermeyi durdur.
           // 2) Telefon kuyruğundaki ÇALMAMIŞ paketleri sil. Bu olmazsa müşteri
           //    konuşurken AI'ın 1-2 saniyelik buffer'ı çalmaya devam eder.
@@ -111,7 +113,8 @@ export class Orchestrator {
         // Maliyet: STT bu turda kaç saniye ses işledi. Düşersek sttSec=0 raporlanır.
         this.telemetry.addSttSeconds(evt.durationMs / 1000);
         this.silencePrompts = 0; // müşteri konuştu → sessizlik sayacını sıfırla
-        void this.onUserTurn(evt.text);
+        // Akustik duygu sinyali sağlayıcıdan geldiyse onu kullan; yoksa metinden çıkar.
+        void this.onUserTurn(evt.text, evt.affectHint);
       }
     });
   }
@@ -121,14 +124,14 @@ export class Orchestrator {
     this.armSilenceTimer(); // anons bitti; müşteri konuşmazsa dürt
   }
 
-  private async onUserTurn(userText: string): Promise<void> {
+  private async onUserTurn(userText: string, affectHint?: Affect): Promise<void> {
     try {
       // Müşteri duygulanımı bu turun SES tonunu ve zamanlamasını belirler:
       //  - hardship → cevaptan ÖNCE kısa "seni aldım" duraklaması (insan beat'i)
       //  - anger    → bekletme YOK; kızgın birini bekletmek öfkeyi büyütür (ton sakinleşir)
       //  - neutral  → gecikme yok (KPI korunur); dolgu açıksa kısa düşünme dolgusu
       const turnState = this.turn.state;
-      this.lastAffect = detectAffect(userText);
+      this.lastAffect = affectHint ?? detectAffect(userText);
       if (this.lastAffect === 'hardship') {
         if (env.NATURALNESS_EMPATHY_PAUSE_MS > 0) await delay(env.NATURALNESS_EMPATHY_PAUSE_MS);
       } else if (this.lastAffect === 'neutral' && env.NATURALNESS_THINKING_FILLER) {
@@ -200,9 +203,10 @@ export class Orchestrator {
     this.speaking = true;
     this.clearSilenceTimer(); // AI konuşurken sessizlik dürtmesi anlamsız
 
-    // Sayı/tarih/para'yı insan okunuşuna çevir (TTS doğal okusun). History ve
-    // maliyet ham metni kullanır; yalnızca SES bu normalize metni okur.
-    const spoken = normalizeForTTS(text);
+    // Teslimat zinciri (yalnızca SES için; history/maliyet ham metni kullanır):
+    //  1) paceForDelivery: para/tarih ardına doğal duraklama (dinleyen yazabilsin)
+    //  2) normalizeForTTS: sayı/tarih/para'yı insan okunuşuna çevir
+    const spoken = normalizeForTTS(paceForDelivery(text));
     // Ton iki katman: (1) konuşma edimine göre (empati/pazarlıkta sıcak, teyitte
     // net), (2) müşteri duygulanımına göre (öfkede de-eskalasyon, zorlukta empati).
     const tone = applyAffectTone(
