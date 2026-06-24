@@ -29,3 +29,36 @@ export function maskName(fullName: string): string {
   const last = parts[parts.length - 1]!;
   return `${parts[0]} ${last[0]}.`;
 }
+
+// =============================================================================
+// pino REDACT — savunma hattı (defense-in-depth)
+// =============================================================================
+// maskPhone/maskName "doğru" yoldur ama bir geliştirici yanlışlıkla ham nesneyi
+// (debtor, STT event, callContext) log'larsa PII sızar. pino `redact` bu kazayı
+// son anda yakalar: aşağıdaki anahtarlar her log'da otomatik [PII] ile değişir.
+// Tüm yollar YAPRAK alandır (ata/torun çakışması yok → pino init'te patlamaz).
+// =============================================================================
+export const PII_REDACT_PATHS: readonly string[] = [
+  // Doğrudan loglanan alanlar.
+  'phoneE164',
+  'fullName',
+  'invoiceRef',
+  'text', // STT/transcript turu metni
+  'userText', // müşteri turu ham metni
+  // Bir seviye iç içe (örn. { debtor: {...} }, { evt: { text } }).
+  '*.phoneE164',
+  '*.fullName',
+  '*.invoiceRef',
+  '*.text',
+  '*.userText',
+  // İki seviye iç içe (örn. { callContext: { debtor: { phoneE164 } } }).
+  '*.*.phoneE164',
+  '*.*.fullName',
+  '*.*.invoiceRef',
+];
+
+/** pino `redact` opsiyonu — api ve voice-service logger'ları aynı config'i kullanır. */
+export const PII_REDACT = {
+  paths: [...PII_REDACT_PATHS],
+  censor: '[PII]',
+};

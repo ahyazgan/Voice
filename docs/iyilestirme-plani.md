@@ -28,23 +28,20 @@ Bunlar doğrudan "para hatası": panel/muhasebe yanlış kayıt görür.
   KVKK hatasını yakaladı:** `CONSENT_DECLINED` şemada eksikti → kayıt reddi state
   machine'e ulaşmıyordu; `LLMIntentSchema`'ya eklenerek düzeltildi.
 
-## Katman 1 — KVKK / yasal (en yüksek hukuki risk) 🔴
+## Katman 1 — KVKK / yasal (en yüksek hukuki risk) 🔴 ✅ TAMAM
 
-- [ ] **Rıza gerçekte toplanmıyor** (`prompts/index.ts:156`): anons sadece
-  duyuru; "hayır" cevabını yakalayan intent/state yok, `consentToRecord` dışarıdan
-  geliyor. → opt-out intent'i + reddi `consentToRecord=false`'a bağla; persist'i
-  buna göre kısıtla (`persist.ts:33`).
-- [ ] **Retention/imha job'u yok**: `recordingUrl`+transkript süresiz duruyor;
-  `doNotCall`/silme talebi mevcut kayıtları silmiyor. → saklama-süresi env'i +
-  periyodik retention worker (recording+transcript+result) + right-to-erasure akışı
-  (storage objesi dahil).
-- [ ] **Taciz koruması atomik değil (TOCTOU)** (`harassmentGuard.ts:43-74` +
-  `processor.ts:46-60`): eşzamanlı job'lar limiti dolmamış görüp aynı borçluyu
-  birden çok arayabilir. → advisory-lock / koşullu `updateMany(QUEUED→RUNNING)` ile
-  "say + RUNNING'e geç"i atomikleştir; worker ana yolunda da taciz kapısını çalıştır.
-- [ ] **PII redaction**: pino `redact` (`*.phoneE164`,`*.fullName`,`*.text`);
-  başarısız BullMQ job payload'undan PII'yi çıkar (sadece `debtorId` taşı,
-  `queue/index.ts`). LLM/STT/TTS'e PII aktarımının dayanağını dokümante et.
+- [x] **Rıza toplanıyor**: `CONSENT_DECLINED` intent + `declineConsent` action →
+  `recordingConsent=false`; `persist.ts` rıza yoksa `recordingUrl`'i düşürür.
+  (Son kopuk halka — şemadaki intent eksiği — Katman 0'da düzeltildi.)
+- [x] **Retention/imha**: `runRetention` (recording+transcript TTL) periyodik sweep
+  (`server.ts`), `eraseDebtorData` + `POST /debtors/:id/erase` right-to-erasure
+  (doNotCall=true dahil). NOT: fiziksel storage objesi silme, storage entegrasyonu
+  eklendiğinde `eraseDebtorData`'ya bağlanmalı (şu an recordingUrl null'lanıyor).
+- [x] **Taciz koruması atomik**: `claimCallSlot` per-borçlu advisory lock altında
+  "say + RUNNING'e geç" — processor ana yolunda çalışıyor (`processor.ts`).
+- [x] **PII redaction**: pino `redact` (PII_REDACT — telefon/isim/invoiceRef/
+  transcript text, iç içe dahil) hem api hem voice-service logger'ında; BullMQ
+  payload zaten yalnızca ID taşıyor (`CallJobData`). Davranış testi: `piiRedact.test.ts`.
 
 ## Katman 2 — Güvenlik (üretime çıkmadan zorunlu) 🟠
 
