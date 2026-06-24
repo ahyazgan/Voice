@@ -15,8 +15,10 @@ import { prisma } from './db/index.js';
 import { verifyToken } from './auth/token.js';
 import { bearer } from './routes/auth.js';
 import { runRetention } from './retention/retention.js';
+import { PII_REDACT } from '@voice/shared';
 
-const app = Fastify({ logger: { level: env.LOG_LEVEL } });
+// KVKK: ham PII (telefon/isim/transkript) yanlışlıkla loglanırsa redact [PII] yapar.
+const app = Fastify({ logger: { level: env.LOG_LEVEL, redact: PII_REDACT } });
 
 // CORS: PANEL_ORIGIN ayarlıysa allowlist (virgülle ayrılmış); yoksa dev'de tüm origin.
 const corsOrigin = env.PANEL_ORIGIN

@@ -21,9 +21,11 @@
 import { performance } from 'node:perf_hooks';
 import pino from 'pino';
 import type { CostBreakdown } from '@voice/shared';
+import { PII_REDACT } from '@voice/shared';
 import { env } from './config.js';
 
-export const logger = pino({ level: env.LOG_LEVEL });
+// KVKK: ham PII (telefon/isim/transkript) yanlışlıkla loglanırsa redact [PII] yapar.
+export const logger = pino({ level: env.LOG_LEVEL, redact: PII_REDACT });
 
 /** Hedef uçtan uca gecikme (stt_final → tts_first_chunk). */
 export const LATENCY_TARGET_MS = 550;
