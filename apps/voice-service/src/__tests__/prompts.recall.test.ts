@@ -1,6 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import type { Debtor, PriorCallSummary } from '@voice/shared';
+import { PriorCallSummarySchema, type Debtor, type PriorCallSummary } from '@voice/shared';
 import { systemPromptFor } from '../prompts/index.js';
+
+describe('PriorCallSummarySchema (API ↔ voice-service kontratı)', () => {
+  it("API'nin ürettiği biçimi kabul eder", () => {
+    const fromApi = {
+      at: new Date('2026-06-15').toISOString(),
+      outcome: 'PROMISE_TO_PAY',
+      promisedAmount: 50000,
+      promisedDate: new Date('2026-06-20').toISOString(),
+    };
+    expect(PriorCallSummarySchema.safeParse(fromApi).success).toBe(true);
+  });
+  it('opsiyonel alanlar olmadan da geçerli', () => {
+    const minimal = { at: new Date('2026-06-15').toISOString(), outcome: 'REFUSED' };
+    expect(PriorCallSummarySchema.safeParse(minimal).success).toBe(true);
+  });
+  it('geçersiz outcome reddedilir', () => {
+    const bad = { at: new Date('2026-06-15').toISOString(), outcome: 'NOPE' };
+    expect(PriorCallSummarySchema.safeParse(bad).success).toBe(false);
+  });
+});
 
 const debtor: Debtor = {
   id: 'd1',

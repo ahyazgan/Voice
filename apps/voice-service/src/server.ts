@@ -2,7 +2,7 @@ import { WebSocketServer } from 'ws';
 import { createServer, type IncomingMessage } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { DebtorSchema, type Debtor } from '@voice/shared';
+import { DebtorSchema, PriorCallSummarySchema, type Debtor, type PriorCallSummary } from '@voice/shared';
 import { env } from './config.js';
 import { logger, LATENCY_TARGET_MS } from './telemetry.js';
 import { loadProviders } from './providers/index.js';
@@ -18,6 +18,27 @@ const providers = loadProviders();
 function toDebtor(d: z.infer<typeof DebtorSchema>): Debtor {
   const { invoiceRef, ...rest } = d;
   return invoiceRef !== undefined ? { ...rest, invoiceRef } : rest;
+}
+
+/**
+ * start frame'indeki opsiyonel priorCall'u (cross-call memory) güvenle çözer.
+ * Geçersiz/eksikse undefined döner — hatırlama yok, arama yine de normal başlar.
+ * exactOptionalPropertyTypes: undefined alanları nesneye KOYMA (koşullu spread).
+ */
+function parsePriorCall(raw: unknown): PriorCallSummary | undefined {
+  if (raw == null) return undefined;
+  const r = PriorCallSummarySchema.safeParse(raw);
+  if (!r.success) {
+    logger.warn({ issues: r.error.issues }, 'invalid priorCall in start frame — yok sayıldı');
+    return undefined;
+  }
+  const p = r.data;
+  return {
+    at: p.at,
+    outcome: p.outcome,
+    ...(p.promisedAmount !== undefined ? { promisedAmount: p.promisedAmount } : {}),
+    ...(p.promisedDate !== undefined ? { promisedDate: p.promisedDate } : {}),
+  };
 }
 
 /**
@@ -171,6 +192,7 @@ if (env.VOICE_MODE === 'platform') {
           return;
         }
         const callId = msg.callId ?? randomUUID();
+        const priorCall = parsePriorCall(msg.priorCall);
         const session = await startPlatformCall({
           platform: providers.platform,
           llm: providers.llm,
@@ -179,6 +201,7 @@ if (env.VOICE_MODE === 'platform') {
             debtor: toDebtor(parsed.data),
             startedAt: new Date().toISOString(),
             consentToRecord: msg.consent === true,
+            ...(priorCall ? { priorCall } : {}),
           },
           onComplete: (reason) => {
             if (ws.readyState === ws.OPEN) ws.close(1000, reason);
@@ -251,6 +274,7 @@ if (env.VOICE_MODE === 'platform') {
           return;
         }
         const callId = msg.callId ?? randomUUID();
+        const priorCall = parsePriorCall(msg.priorCall);
         const session = await providers.telephony.placeCall({
           callId,
           to: parsed.data.phoneE164,
@@ -264,6 +288,7 @@ if (env.VOICE_MODE === 'platform') {
               debtor: toDebtor(parsed.data),
               startedAt: new Date().toISOString(),
               consentToRecord: msg.consent === true,
+              ...(priorCall ? { priorCall } : {}),
             },
             session,
             // Gerçek telefon hattı 8kHz μ-law taşır (Deepgram μ-law/8000, ElevenLabs
