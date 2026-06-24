@@ -38,6 +38,9 @@ export const LLMIntentSchema = z.enum([
   'ASKS_CALLBACK',
   'GETS_ANGRY',
   'CONFIRMED',
+  // KVKK: kayıt reddi. identify state'inde prompt + OpenAI enum bunu üretebiliyordu
+  // ama şema reddediyordu (drift) → reddi state machine'e ulaşmıyordu. Senkronlandı.
+  'CONSENT_DECLINED',
   'NO_RESPONSE',
 ]);
 
