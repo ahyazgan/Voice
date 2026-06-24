@@ -4,6 +4,8 @@ import type { CostRates } from './telemetry.js';
 
 const EnvSchema = z.object({
   VOICE_WS_PORT: z.coerce.number().default(8787),
+  // Prod fail-fast için: production'da güvenlik sırları zorunlu (aşağıda kontrol).
+  NODE_ENV: z.string().default('development'),
   /**
    * `platform` = Faz 1: orkestrasyon platformu (Retell/Vapi) ses akışını yürütür,
    *              voice-service yalnızca state machine + LLM turlarını çalıştırır.
@@ -122,6 +124,34 @@ const EnvSchema = z.object({
 export type Env = z.infer<typeof EnvSchema>;
 
 export const env: Env = EnvSchema.parse(process.env);
+
+/**
+ * Prod fail-fast (Katman 2 — güvenlik): production'da boş güvenlik sırrı = sessizce
+ * korumasız uç. /control auth'u (INTERNAL_API_SECRET) ve gelen WS token'ı
+ * (INBOUND_WS_TOKEN) olmadan voice-service internete açık olursa yetkisiz arama
+ * başlatma / sahte medya enjeksiyonu (toll fraud) mümkün. Üretimde ZORUNLU →
+ * eksikse başlatmada patla. Saf fonksiyon → test edilebilir.
+ */
+export function requireProductionSecrets(
+  e: Pick<Env, 'NODE_ENV' | 'INTERNAL_API_SECRET' | 'INBOUND_WS_TOKEN'>,
+): void {
+  if (e.NODE_ENV !== 'production') return;
+  const missing = (
+    [
+      ['INTERNAL_API_SECRET', e.INTERNAL_API_SECRET],
+      ['INBOUND_WS_TOKEN', e.INBOUND_WS_TOKEN],
+    ] as const
+  )
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (missing.length > 0) {
+    throw new Error(
+      `Production'da zorunlu güvenlik env'leri eksik (voice-service): ${missing.join(', ')}`,
+    );
+  }
+}
+
+requireProductionSecrets(env);
 
 /**
  * Telemetri için CostRates. Hepsi 0 ise `undefined` dönüp telemetry maliyet
