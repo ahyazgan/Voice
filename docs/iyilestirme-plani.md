@@ -10,25 +10,23 @@ geçince **3**, paralelde **4–5**.
 
 ---
 
-## Katman 0 — Ürünün ana çıktısı (PROMISE_TO_PAY güvenilmez) 🔴
+## Katman 0 — Ürünün ana çıktısı (PROMISE_TO_PAY güvenilmez) 🔴 ✅ TAMAM
 
 Bunlar doğrudan "para hatası": panel/muhasebe yanlış kayıt görür.
 
-- [ ] **`confirm`'de kilitlenme + sahte ödeme sözü.** Müşteri teyitte itiraz/ret
-  ederse geçerli intent yok (`stateMachine.ts:161-168`); `NO_RESPONSE`'a düşüp
-  takılır ve outcome zaten `PROMISE_TO_PAY` set edilmiştir → gerçekte söz olmadan
-  kayıt. → `confirm`'e `DISPUTES_DEBT`/`REFUSES`/`ASKS_CALLBACK` geçişleri + prompt
-  intent listesini senkronla.
-- [ ] **Ödeme sözünde tutar/tarih zorunlu değil** (`stateMachine.ts:121,192`):
-  boş `promisedAmount/Date` ile `PROMISE_TO_PAY` yazılabiliyor. → `WILL_PAY`/
-  `PARTIAL_OR_PLAN` için `hasAmountOrDate` guard'ı; eksikse re-ask alt-akışı.
-- [ ] **Geri arama tarihi kayboluyor** (`stateMachine.ts:262-266`): context'e
-  `callbackAt` ekle, action ile yaz, finalize payload'una taşı.
-- [ ] **Para birimi 100x sapma riski** (`statsMath.ts:36/78`): stats kuruşu
-  `totalTRY` adıyla döndürüyor. → Tek invariant: her şey `*Kurus`; alan adlarını
-  düzelt, şema yorumuna birim invariantı yaz.
-- [ ] **Intent-drift testi**: `intentsForState` enum'u ile `stateMachine.on`
-  anahtarlarının eşitliğini doğrulayan test (drift sessizce kaçıyor).
+- [x] **`confirm`'de kilitlenme + sahte ödeme sözü.** `confirm`'e
+  `DISPUTES_DEBT`/`REFUSES`/`ASKS_CALLBACK` geçişleri + `refusePromise`/`clearPromise`
+  ile vazgeçen müşteride söz temizleniyor (`stateMachine.ts`).
+- [x] **Ödeme sözünde tutar/tarih zorunlu**: `hasAmountOrDate` guard'ı —
+  ikisi de boşsa söz kilitlenmez, model detayı tekrar sorar.
+- [x] **Geri arama tarihi**: context'te `callbackAt`, `recordCallback` ile yazılıp
+  finalize'a taşınıyor.
+- [x] **Para birimi invariantı**: stats artık her şeyi `*Kurus` döndürüyor
+  (`statsMath.ts` — "Tüm para alanları KURUŞ" invariantı yorumda).
+- [x] **Intent-drift testi** (`intentDrift.test.ts`): `intentsForState` ↔
+  `LLMIntentSchema` ↔ `eventFromIntent` kenetini doğrular. **Bu test gerçek bir
+  KVKK hatasını yakaladı:** `CONSENT_DECLINED` şemada eksikti → kayıt reddi state
+  machine'e ulaşmıyordu; `LLMIntentSchema`'ya eklenerek düzeltildi.
 
 ## Katman 1 — KVKK / yasal (en yüksek hukuki risk) 🔴
 
